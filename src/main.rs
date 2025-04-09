@@ -1,39 +1,36 @@
-use leptos::mount::mount_to_body;
-use leptos::prelude::*;
+use anyhow::Result;
+use futures_util::{SinkExt, StreamExt};
+use tokio::net::TcpListener;
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message;
 
-fn main() {
-    console_error_panic_hook::set_once();
-    mount_to_body(App);
+#[tokio::main]
+async fn main() -> Result<()> {
+    let addr = "127.0.0.1:2323".to_string();
+    let listener = TcpListener::bind(&addr).await?;
+    println!("WebSocket server started on ws://{}", addr);
+
+    while let Ok((stream, _)) = listener.accept().await {
+        tokio::spawn(handle_connection(stream));
+    }
+
+    Ok(())
 }
 
-#[component]
-pub fn App() -> impl IntoView {
-    let radarr_addr = RwSignal::new("127.0.0.1:7878".to_string());
-    let qbit_addr = RwSignal::new("127.0.0.1:8888".to_string());
+async fn handle_connection(stream: tokio::net::TcpStream) -> Result<()> {
+    let mut ws_stream = accept_async(stream).await?;
+    println!("WebSocket connection established");
 
-    view! {
-        <table>
-            <tr>
-                <th><p> Radarr address: </p></th>
-                <th><p>
-                    <input type="text"
-                        bind:value=radarr_addr
-                    />
-                </p></th>
-            </tr>
-            <tr>
-                <th><p> qBittorrent address: </p></th>
-                <th><p>
-                    <input type="text"
-                        bind:value=qbit_addr
-                    />
-                </p></th>
-            </tr>
-        </table>
-        <button on:click=|_| {
-                //TODO: save addresses
-            }
-        >Save</button>
-
+    while let Some(msg) = ws_stream.next().await {
+        let msg = msg?;
+        if msg.is_text() {
+            let received_text = msg.to_text()?;
+            println!("Received message: {}", received_text);
+            ws_stream
+                .send(Message::Text(received_text.to_string().into()))
+                .await?;
+        }
     }
+
+    Ok(())
 }
