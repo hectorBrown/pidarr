@@ -1,11 +1,19 @@
+use closure::closure;
 use leptos::logging::log;
 use leptos::mount::mount_to_body;
 use leptos::prelude::*;
-use wasm_sockets::{self, WebSocketError};
+use serde::Serialize;
+use wasm_sockets::{self, Message};
 
 fn main() {
     console_error_panic_hook::set_once();
     mount_to_body(App);
+}
+
+#[derive(Serialize)]
+struct Settings {
+    radarr_addr: String,
+    qbit_addr: String,
 }
 
 #[component]
@@ -15,14 +23,17 @@ pub fn App() -> impl IntoView {
     let radarr_addr = RwSignal::new("127.0.0.1:7878".to_string());
     let qbit_addr = RwSignal::new("127.0.0.1:8888".to_string());
 
+    let connected = RwSignal::new(false);
+
     log!("Creating connection with daemon");
     let mut client = wasm_sockets::EventClient::new(daemon_addr).unwrap();
-    client.set_on_connection(Some(Box::new(|client: &wasm_sockets::EventClient| {
-        log!("Sending message...");
-        client.send_string("Hello, World!").unwrap();
-    })));
+    client.set_on_connection(Some(Box::new(closure!(move connected,|_| {
+        log!("Connection to daemon established.");
+        connected.set(true);
+    }))));
 
     view! {
+        <p>Connected to daemon: {move || format!(" {}", connected.get().to_string())}</p>
         <table>
             <tr>
                 <th><p> Radarr address: </p></th>
@@ -42,10 +53,13 @@ pub fn App() -> impl IntoView {
             </tr>
         </table>
         <button on:click=move |_| {
-                //TODO: save addresses
-                // send_data(&mut ws_stream, "Hello!");
+                let payload = Settings {
+        radarr_addr: radarr_addr.get().to_string(),
+        qbit_addr: qbit_addr.get().to_string(),
+    };
+            client.send_string(&serde_json::to_string(&payload).unwrap());
             }
-        >Save</button>
+     >Save</button>
 
     }
 }
