@@ -1,8 +1,9 @@
 use anyhow::Result;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message;
 
 #[derive(Deserialize, Debug)]
 struct Settings {
@@ -24,10 +25,14 @@ async fn main() -> Result<()> {
 }
 
 async fn handle_connection(stream: tokio::net::TcpStream) -> Result<()> {
-    let mut ws_stream = accept_async(stream).await?;
+    let ws_stream = accept_async(stream).await?;
     println!("WebSocket connection established");
 
-    while let Some(msg) = ws_stream.next().await {
+    let (mut ws_send, mut ws_rec) = ws_stream.split();
+
+    ws_send.send(Message::Text("Hello, world!".into())).await?;
+
+    while let Some(msg) = ws_rec.next().await {
         let msg = msg?;
         if msg.is_text() {
             let settings: Settings = serde_json::from_str(msg.to_text().unwrap()).unwrap();
