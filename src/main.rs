@@ -1,14 +1,8 @@
 use anyhow::Result;
 use futures_util::StreamExt;
-use serde::Deserialize;
+use pidarr_shared::Settings;
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
-
-#[derive(Deserialize, Debug)]
-struct Settings {
-    radarr_addr: String,
-    qbit_addr: String,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {

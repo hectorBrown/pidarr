@@ -2,18 +2,13 @@ use closure::closure;
 use leptos::logging::log;
 use leptos::mount::mount_to_body;
 use leptos::prelude::*;
+use pidarr_shared::Settings;
 use serde::Serialize;
 use wasm_sockets::{self, Message};
 
 fn main() {
     console_error_panic_hook::set_once();
     mount_to_body(App);
-}
-
-#[derive(Serialize)]
-struct Settings {
-    radarr_addr: String,
-    qbit_addr: String,
 }
 
 #[component]

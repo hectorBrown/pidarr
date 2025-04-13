@@ -527,10 +527,17 @@ dependencies = [
  "anyhow",
  "config",
  "futures-util",
- "serde",
+ "pidarr-shared",
  "serde_json",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "pidarr-shared"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

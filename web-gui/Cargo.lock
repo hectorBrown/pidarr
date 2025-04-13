@@ -985,9 +985,17 @@ dependencies = [
  "closure",
  "console_error_panic_hook",
  "leptos",
+ "pidarr-shared",
  "serde",
  "serde_json",
  "wasm-sockets",
+]
+
+[[package]]
+name = "pidarr-shared"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
