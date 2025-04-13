@@ -76,6 +76,31 @@ fn send_to_daemon(payload: &impl Serialize, client: &EventClient) -> Result<()> 
 }
 
 fn connect_to_daemon(addr: &str, connected: RwSignal<bool>) -> EventClient {
+    log!("Creating connection with daemon");
+    let mut client = wasm_sockets::EventClient::new(addr).unwrap();
+    client.set_on_connection(Some(Box::new(move |_| {
+        log!("Connection to daemon established.");
+        connected.set(true);
+    })));
+    client.set_on_close(Some(Box::new(move |_| {
+        error!("Connection to daemon closed.");
+        connected.set(false);
+    })));
+    client.set_on_error(Some(Box::new(move |error| {
+        error!("{:#?}", error);
+        connected.set(false);
+    })));
+    client.set_on_message(Some(Box::new(|client: &EventClient, msg: Message| {
+        log!("Received message from daemon: {:#?}", msg);
+        handle_message(&client, msg);
+    })));
+    client
+}
+
+fn handle_message(client: &EventClient, msg: Message) {
+    log!("New message!")
+}
+
 // fn send_data(ws_stream: &mut Client<Box<dyn NetworkStream + Send>>, message: &str) {
 //     // Sending a message to the server
 //     ws_stream.send_message(&Message::text(message));
