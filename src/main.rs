@@ -22,7 +22,10 @@ async fn main() -> Result<()> {
     // check if the config file exists
     if !Path::new(&config_path).exists() {
         eprintln!("Configuration file not found: {}", config_path);
-        eprintln!("Creating a configuration file with default values at: {}", config_path);
+        eprintln!(
+            "Creating a configuration file with default values at: {}",
+            config_path
+        );
 
         // Create the file with default settings
         create_default_config(&config_path)?;
@@ -37,7 +40,9 @@ async fn main() -> Result<()> {
     let settings = match config.try_deserialize::<Settings>() {
         Ok(settings) => settings,
         Err(_) => {
-            eprintln!("Failed to deserialize settings. Recreating the configuration file with default values.");
+            eprintln!(
+                "Failed to deserialize settings. Recreating the configuration file with default values."
+            );
             create_default_config(&config_path)?;
             Settings::default()
         }
@@ -49,7 +54,11 @@ async fn main() -> Result<()> {
     println!("WebSocket server started on ws://{}", addr);
 
     while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(handle_connection(stream, settings.clone(), config_path.clone()));
+        tokio::spawn(handle_connection(
+            stream,
+            settings.clone(),
+            config_path.clone(),
+        ));
     }
 
     Ok(())
@@ -66,7 +75,11 @@ fn create_default_config(config_path: &str) -> Result<()> {
     Ok(())
 }
 
-async fn handle_connection(stream: tokio::net::TcpStream, settings: Settings, config_path: String) -> Result<()> {
+async fn handle_connection(
+    stream: tokio::net::TcpStream,
+    settings: Settings,
+    config_path: String,
+) -> Result<()> {
     let ws_stream = accept_async(stream).await?;
     println!("WebSocket connection established");
 

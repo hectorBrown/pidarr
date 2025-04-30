@@ -4,6 +4,8 @@ use leptos::prelude::*;
 use pidarr_shared::Settings;
 use serde::Serialize;
 use wasm_sockets::{self, EventClient, Message};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn main() {
     console_error_panic_hook::set_once();
@@ -18,8 +20,20 @@ pub fn App() -> impl IntoView {
     let qbit_addr = RwSignal::new("127.0.0.1:8888".to_string());
 
     let connected = RwSignal::new(false);
+    let client = Rc::new(RefCell::new(None::<EventClient>));
 
-    let client = connect_to_daemon(daemon_addr, connected);
+    // Function to attempt connection
+    let connect_to_daemon = {
+        let client = client.clone();
+        let connected = connected.clone();
+        move || {
+            let new_client = connect_to_daemon_impl(daemon_addr, connected.clone());
+            *client.borrow_mut() = Some(new_client);
+        }
+    };
+
+    // Initial connection attempt
+    connect_to_daemon();
 
     view! {
         <p>Connected to daemon: {move || format!(" {}", connected.get().to_string())}</p>
@@ -51,14 +65,20 @@ pub fn App() -> impl IntoView {
                 qbit_addr: qbit_addr.get().to_string(),
             };
             if connected.get() {
-                match send_to_daemon(&payload, &client) {
-                    Ok(_) => log!("Sent payload to daemon: {}", serde_json::to_string(&payload).unwrap()),
-                    Err(e) => error!("Failed to send payload to daemon: {}", e),
+                if let Some(client) = client.borrow().as_ref() {
+                    match send_to_daemon(&payload, client) {
+                        Ok(_) => log!("Sent payload to daemon: {}", serde_json::to_string(&payload).unwrap()),
+                        Err(e) => error!("Failed to send payload to daemon: {}", e),
+                    }
                 }
             } else {
                 error!("Can't save settings, not connected to daemon.")
             }
         }>Save</button>
+        <button on:click=move |_| {
+            log!("Retrying connection to daemon...");
+            connect_to_daemon();
+        }>Retry Connection</button>
     }
 }
 
@@ -75,7 +95,7 @@ fn send_to_daemon(payload: &impl Serialize, client: &EventClient) -> Result<()> 
     };
 }
 
-fn connect_to_daemon(addr: &str, connected: RwSignal<bool>) -> EventClient {
+fn connect_to_daemon_impl(addr: &str, connected: RwSignal<bool>) -> EventClient {
     log!("Creating connection with daemon");
     let mut client = wasm_sockets::EventClient::new(addr).unwrap();
     client.set_on_connection(Some(Box::new(move |_| {
@@ -100,8 +120,3 @@ fn connect_to_daemon(addr: &str, connected: RwSignal<bool>) -> EventClient {
 fn handle_message(client: &EventClient, msg: Message) {
     log!("New message!")
 }
-
-// fn send_data(ws_stream: &mut Client<Box<dyn NetworkStream + Send>>, message: &str) {
-//     // Sending a message to the server
-//     ws_stream.send_message(&Message::text(message));
-// }
