@@ -15,3 +15,14 @@ impl Default for Settings {
         }
     }
 }
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum MessageType {
+    Settings,
+}
+
+#[derive(Clone, Deserialize, Debug, Serialize)]
+pub struct InternalMessage<T> {
+    pub message_type: MessageType,
+    pub body: T,
+}
