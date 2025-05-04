@@ -1,14 +1,16 @@
 use anyhow::Result;
 use config::Config;
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use pidarr_shared::Settings;
+use pidarr_shared::{InternalMessage, Settings};
+use serde::{Deserialize, Serialize};
 use std::env::var;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use tokio::net::TcpListener;
-use tokio_tungstenite::accept_async;
+use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio_tungstenite::{WebSocketStream, accept_async};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -127,4 +129,28 @@ async fn handle_connection(
     }
 
     Ok(())
+}
+
+async fn send_message<T>(
+    ws_send: &mut SplitSink<WebSocketStream<TcpStream>, Message>,
+    message: InternalMessage<T>,
+) -> Result<()>
+where
+    T: Serialize + for<'a> Deserialize<'a>,
+{
+    ws_send
+        .send(Message::Text(serde_json::to_string(&message.body)?.into()))
+        .await?;
+    Ok(())
+}
+
+async fn receive_message<T>(
+    ws_rec: &mut SplitStream<WebSocketStream<TcpStream>>,
+) -> Result<InternalMessage<T>>
+where
+    T: for<'a> Deserialize<'a>,
+{
+    let msg = ws_rec.next().await.unwrap()?;
+    let message: InternalMessage<T> = serde_json::from_str(msg.to_text().unwrap())?;
+    Ok(message)
 }
