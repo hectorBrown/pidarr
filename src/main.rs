@@ -28,7 +28,15 @@ async fn main() -> Result<()> {
         );
 
         // Create the file with default settings
-        create_default_config(&config_path)?;
+        match create_default_config(&config_path) {
+            Ok(res) => res,
+            Err(e) => {
+                eprintln!(
+                    "Failed to create default config at location {}. \n{}",
+                    config_path, e,
+                );
+            }
+        }
     }
 
     // establish config source
@@ -39,11 +47,20 @@ async fn main() -> Result<()> {
     // try to extract from the file
     let settings = match config.try_deserialize::<Settings>() {
         Ok(settings) => settings,
-        Err(_) => {
+        Err(e) => {
             eprintln!(
-                "Failed to deserialize settings. Recreating the configuration file with default values."
+                "Failed to deserialize settings. Recreating the configuration file with default values. A backup of your original config can be found at {}.bak.\n{}",
+                config_path, e
             );
-            create_default_config(&config_path)?;
+            match create_default_config(&config_path) {
+                Ok(res) => res,
+                Err(e) => {
+                    eprintln!(
+                        "Failed to create default config at location {}. \n{}",
+                        config_path, e,
+                    );
+                }
+            }
             Settings::default()
         }
     };
