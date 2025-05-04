@@ -15,6 +15,7 @@ use tokio_tungstenite::{WebSocketStream, accept_async};
 #[tokio::main]
 async fn main() -> Result<()> {
     // construct the config file path
+    // TODO: test this
     let config_path = format!(
         "{}{}",
         var("XDG_CONFIG_HOME").unwrap_or(format!("{}{}", var("HOME")?, "/.config")),
