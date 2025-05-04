@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::default::Default;
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct Settings {
@@ -6,9 +7,9 @@ pub struct Settings {
     pub qbit_addr: String,
 }
 
-impl Settings {
-    pub fn default() -> Self {
-        Settings {
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
             radarr_addr: "http://localhost:7878".to_string(),
             qbit_addr: "http://localhost:8080".to_string(),
         }
