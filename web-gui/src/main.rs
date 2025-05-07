@@ -1,23 +1,32 @@
+use anyhow::{Result, anyhow};
 use leptos::logging::{error, log};
 use leptos::mount::mount_to_body;
 use leptos::prelude::*;
-use pidarr_shared::Settings;
+use pidarr_shared::{InternalMessage, MessageType, Settings};
 use serde::Serialize;
-use wasm_sockets::{self, EventClient, Message};
+use serde_json::json;
 use std::cell::RefCell;
 use std::rc::Rc;
+use wasm_sockets::{self, EventClient, Message};
 
 fn main() {
     console_error_panic_hook::set_once();
     mount_to_body(App);
 }
 
+struct SettingsControls {
+    radarr_addr: RwSignal<String>,
+    qbit_addr: RwSignal<String>,
+}
+
 #[component]
 pub fn App() -> impl IntoView {
     let daemon_addr = "ws://127.0.0.1:2323";
 
-    let radarr_addr = RwSignal::new("127.0.0.1:7878".to_string());
-    let qbit_addr = RwSignal::new("127.0.0.1:8888".to_string());
+    let settings_controls = Rc::new(RefCell::new(SettingsControls {
+        radarr_addr: RwSignal::new("127.0.0.1:7878".to_string()),
+        qbit_addr: RwSignal::new("127.0.0.1:8888".to_string()),
+    }));
 
     let connected = RwSignal::new(false);
     let client = Rc::new(RefCell::new(None::<EventClient>));
@@ -27,7 +36,8 @@ pub fn App() -> impl IntoView {
         let client = client.clone();
         let connected = connected.clone();
         move || {
-            let new_client = connect_to_daemon_impl(daemon_addr, connected.clone());
+            let new_client =
+                connect_to_daemon_impl(daemon_addr, connected.clone(), &settings_controls);
             *client.borrow_mut() = Some(new_client);
         }
     };
@@ -44,7 +54,7 @@ pub fn App() -> impl IntoView {
                 </th>
                 <th>
                     <p>
-                        <input type="text" bind:value=radarr_addr />
+                        <input type="text" bind:value=settings_controls.borrow_mut().radarr_addr />
                     </p>
                 </th>
             </tr>
@@ -54,16 +64,17 @@ pub fn App() -> impl IntoView {
                 </th>
                 <th>
                     <p>
-                        <input type="text" bind:value=qbit_addr />
+                        <input type="text" bind:value=settings_controls.borrow_mut().qbit_addr />
                     </p>
                 </th>
             </tr>
         </table>
         <button on:click=move |_| {
-            let payload = Settings {
-                radarr_addr: radarr_addr.get().to_string(),
-                qbit_addr: qbit_addr.get().to_string(),
-            };
+            let payload = InternalMessage { message_type: MessageType::Settings,
+            body: json!(Settings {
+                radarr_addr: settings_controls.borrow().radarr_addr.get().to_string(),
+                qbit_addr: settings_controls.borrow().qbit_addr.get().to_string(),
+            })};
             if connected.get() {
                 if let Some(client) = client.borrow().as_ref() {
                     match send_to_daemon(&payload, client) {
@@ -95,7 +106,11 @@ fn send_to_daemon(payload: &impl Serialize, client: &EventClient) -> Result<()> 
     };
 }
 
-fn connect_to_daemon_impl(addr: &str, connected: RwSignal<bool>) -> EventClient {
+fn connect_to_daemon_impl(
+    addr: &str,
+    connected: RwSignal<bool>,
+    settings_controls: &Rc<RefCell<SettingsControls>>,
+) -> EventClient {
     log!("Creating connection with daemon");
     let mut client = wasm_sockets::EventClient::new(addr).unwrap();
     client.set_on_connection(Some(Box::new(move |_| {
@@ -111,12 +126,34 @@ fn connect_to_daemon_impl(addr: &str, connected: RwSignal<bool>) -> EventClient 
         connected.set(false);
     })));
     client.set_on_message(Some(Box::new(|client: &EventClient, msg: Message| {
-        log!("Received message from daemon: {:#?}", msg);
-        handle_message(&client, msg);
+        if let Err(e) = handle_message(&client, &msg) {
+            error!("Failed to handle message: {:?}\nError: {}", msg, e);
+        };
     })));
     client
 }
 
-fn handle_message(client: &EventClient, msg: Message) {
-    log!("New message!")
+fn handle_message(client: &EventClient, msg: &Message) -> Result<()> {
+    let msg_string = match msg {
+        Message::Text(s) => Ok(s),
+        Message::Binary(u) => Err(anyhow!("Binary message received from server: {:?}", u)),
+    }?;
+
+    let message: InternalMessage = serde_json::from_str(&msg_string)?;
+
+    log!("Received message from daemon: {:?}", message);
+
+    match message.message_type {
+        MessageType::Settings => {
+            update_settings(serde_json::from_value::<Settings>(message.body)?)?
+        }
+    }
+
+    Ok(())
+}
+
+fn update_settings(settings: Settings) -> Result<()> {
+    // Update settings
+
+    Ok(())
 }
