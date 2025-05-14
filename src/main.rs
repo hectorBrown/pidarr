@@ -2,8 +2,8 @@ use anyhow::Result;
 use config::Config;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use pidarr_shared::{InternalMessage, Settings};
-use serde::{Deserialize, Serialize};
+use pidarr_shared::{InternalMessage, MessageType, Settings};
+use serde_json::json;
 use std::env::var;
 use std::fs::File;
 use std::io::Write;
@@ -80,7 +80,6 @@ async fn main() -> Result<()> {
             config_path.clone(),
         ));
     }
-
     Ok(())
 }
 
@@ -106,52 +105,50 @@ async fn handle_connection(
     let (mut ws_send, mut ws_rec) = ws_stream.split();
 
     // Send the current settings to the client
-    ws_send
-        .send(Message::Text(serde_json::to_string(&settings)?.into()))
-        .await?;
+    send_message(
+        &mut ws_send,
+        InternalMessage {
+            message_type: MessageType::Settings,
+            body: json!(settings),
+        },
+    )
+    .await?;
 
     // Loop for responses indicating changes to the settings
-    while let Some(msg) = ws_rec.next().await {
+    loop {
+        let msg = receive_message(&mut ws_rec).await;
         let msg = msg?;
-        if msg.is_text() {
-            // Deserialize the updated settings from the received message
-            let updated_settings: Settings = serde_json::from_str(msg.to_text().unwrap())?;
-
-            // Save the updated settings to the configuration file
-            if let Some(parent_dir) = Path::new(&config_path).parent() {
-                std::fs::create_dir_all(parent_dir)?; // Ensure parent directories exist
+        println!("Received message from gui {:?}", msg);
+        match msg.message_type {
+            MessageType::Settings => {
+                update_settings(&config_path, serde_json::from_value::<Settings>(msg.body)?).await?
             }
-
-            let mut file = File::create(&config_path)?;
-            file.write_all(toml::to_string(&updated_settings)?.as_bytes())?;
-
-            println!("Updated settings saved to {}", config_path);
         }
     }
+}
 
+async fn update_settings(config_path: &String, settings: Settings) -> Result<()> {
+    println!("Received settings update from client: {:?}", settings);
+
+    //TODO: will need to retry connections to tdarr/qbit here
     Ok(())
 }
 
-async fn send_message<T>(
+async fn send_message(
     ws_send: &mut SplitSink<WebSocketStream<TcpStream>, Message>,
-    message: InternalMessage<T>,
-) -> Result<()>
-where
-    T: Serialize + for<'a> Deserialize<'a>,
-{
+    message: InternalMessage,
+) -> Result<()> {
     ws_send
-        .send(Message::Text(serde_json::to_string(&message.body)?.into()))
+        .send(Message::Text(serde_json::to_string(&message)?.into()))
         .await?;
+    println!("Sent message to gui: {:?}", message);
     Ok(())
 }
 
-async fn receive_message<T>(
+async fn receive_message(
     ws_rec: &mut SplitStream<WebSocketStream<TcpStream>>,
-) -> Result<InternalMessage<T>>
-where
-    T: for<'a> Deserialize<'a>,
-{
+) -> Result<InternalMessage> {
     let msg = ws_rec.next().await.unwrap()?;
-    let message: InternalMessage<T> = serde_json::from_str(msg.to_text().unwrap())?;
+    let message: InternalMessage = serde_json::from_str(msg.to_text()?)?;
     Ok(message)
 }

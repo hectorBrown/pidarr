@@ -22,7 +22,7 @@ pub enum MessageType {
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize)]
-pub struct InternalMessage<T> {
+pub struct InternalMessage {
     pub message_type: MessageType,
-    pub body: T,
+    pub body: serde_json::Value,
 }

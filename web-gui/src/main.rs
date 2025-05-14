@@ -111,12 +111,34 @@ fn connect_to_daemon_impl(addr: &str, connected: RwSignal<bool>) -> EventClient 
         connected.set(false);
     })));
     client.set_on_message(Some(Box::new(|client: &EventClient, msg: Message| {
-        log!("Received message from daemon: {:#?}", msg);
-        handle_message(&client, msg);
+        if let Err(e) = handle_message(&client, &msg) {
+            error!("Failed to handle message: {:?}\nError: {}", msg, e);
+        };
     })));
     client
 }
 
-fn handle_message(client: &EventClient, msg: Message) {
-    log!("New message!")
+fn handle_message(client: &EventClient, msg: &Message) -> Result<()> {
+    let msg_string = match msg {
+        Message::Text(s) => Ok(s),
+        Message::Binary(u) => Err(anyhow!("Binary message received from server: {:?}", u)),
+    }?;
+
+    let message: InternalMessage = serde_json::from_str(&msg_string)?;
+
+    log!("Received message from daemon: {:?}", message);
+
+    match message.message_type {
+        MessageType::Settings => {
+            update_settings(serde_json::from_value::<Settings>(message.body)?)?
+        }
+    }
+
+    Ok(())
+}
+
+fn update_settings(settings: Settings) -> Result<()> {
+    // Update settings
+
+    Ok(())
 }
