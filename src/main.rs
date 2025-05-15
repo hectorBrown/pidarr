@@ -8,6 +8,7 @@ use std::env::var;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{WebSocketStream, accept_async};
@@ -48,7 +49,7 @@ async fn main() -> Result<()> {
         .build()?;
 
     // try to extract from the file
-    let settings = match config.try_deserialize::<Settings>() {
+    let settings = Arc::new(Mutex::new(match config.try_deserialize::<Settings>() {
         Ok(settings) => settings,
         Err(e) => {
             eprintln!(
@@ -66,7 +67,7 @@ async fn main() -> Result<()> {
             }
             Settings::default()
         }
-    };
+    }));
 
     // host on *arr style addr
     let addr = "127.0.0.1:2323".to_string();
@@ -96,7 +97,7 @@ fn create_default_config(config_path: &str) -> Result<()> {
 
 async fn handle_connection(
     stream: tokio::net::TcpStream,
-    settings: Settings,
+    settings: Arc<Mutex<Settings>>,
     config_path: String,
 ) -> Result<()> {
     let ws_stream = accept_async(stream).await?;
@@ -109,7 +110,7 @@ async fn handle_connection(
         &mut ws_send,
         InternalMessage {
             message_type: MessageType::Settings,
-            body: json!(settings),
+            body: json!(&*settings),
         },
     )
     .await?;
@@ -121,14 +122,42 @@ async fn handle_connection(
         println!("Received message from gui {:?}", msg);
         match msg.message_type {
             MessageType::Settings => {
-                update_settings(&config_path, serde_json::from_value::<Settings>(msg.body)?).await?
+                update_settings(
+                    &config_path,
+                    serde_json::from_value::<Settings>(msg.body)?,
+                    settings.clone(),
+                )
+                .await?
             }
         }
+        // if msg.is_text() {
+        //     // Deserialize the updated settings from the received message
+        // }
     }
 }
 
-async fn update_settings(config_path: &String, settings: Settings) -> Result<()> {
-    println!("Received settings update from client: {:?}", settings);
+async fn update_settings(
+    config_path: &String,
+    updated_settings: Settings,
+    settings: Arc<Mutex<Settings>>,
+) -> Result<()> {
+    println!(
+        "Received settings update from client: {:?}",
+        updated_settings
+    );
+
+    let mut settings_ref = settings.lock().unwrap();
+    *settings_ref = updated_settings.clone();
+
+    // Save the updated settings to the configuration file
+    if let Some(parent_dir) = Path::new(&config_path).parent() {
+        std::fs::create_dir_all(parent_dir)?; // Ensure parent directories exist
+    }
+
+    let mut file = File::create(config_path)?;
+    file.write_all(toml::to_string(&updated_settings)?.as_bytes())?;
+
+    println!("Updated settings saved to {}", config_path);
 
     //TODO: will need to retry connections to tdarr/qbit here
     Ok(())
