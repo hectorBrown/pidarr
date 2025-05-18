@@ -154,8 +154,11 @@ async fn handle_connection(
             match msg.message_type {
                 MessageType::Settings => {
                     if let Ok(updated_settings) = serde_json::from_value::<Settings>(msg.body) {
-                        //TODO: handle errors here
-                        update_settings(&config_path, updated_settings, settings.clone()).await;
+                        if let Err(e) =
+                            update_settings(&config_path, updated_settings, settings.clone()).await
+                        {
+                            eprintln!("There was an error updating the settings: {:?}", e);
+                        }
                     } else {
                         eprintln!("Failed to deserialize settings update from client");
                     }
