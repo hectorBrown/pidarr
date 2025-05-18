@@ -1,7 +1,12 @@
 use anyhow::Result;
+use anyhow::anyhow;
+use axum::{
+    Router,
+    extract::State,
+    extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade},
+    response::IntoResponse,
+};
 use config::Config;
-use futures_util::stream::{SplitSink, SplitStream};
-use futures_util::{SinkExt, StreamExt};
 use pidarr_shared::{InternalMessage, MessageType, Settings};
 use serde_json::json;
 use std::env::var;
@@ -9,9 +14,14 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::tungstenite::protocol::Message;
-use tokio_tungstenite::{WebSocketStream, accept_async};
+use tokio::net::TcpListener;
+use tower_http::services::ServeDir;
+
+#[derive(Clone)]
+struct AppState {
+    settings: Arc<Mutex<Settings>>,
+    config_path: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,7 +36,7 @@ async fn main() -> Result<()> {
     // check if the config file exists
     if !Path::new(&config_path).exists() {
         eprintln!("Configuration file not found: {}", config_path);
-        eprintln!(
+        println!(
             "Creating a configuration file with default values at: {}",
             config_path
         );
@@ -72,16 +82,27 @@ async fn main() -> Result<()> {
     // host on *arr style addr
     let addr = "127.0.0.1:2323".to_string();
     let listener = TcpListener::bind(&addr).await?;
-    println!("WebSocket server started on ws://{}", addr);
+    println!("WebSocket server started on ws://{}/ws", addr);
 
-    while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(handle_connection(
-            stream,
-            settings.clone(),
-            config_path.clone(),
-        ));
-    }
+    //construct the router
+
+    let app = build_router().with_state(AppState {
+        settings,
+        config_path: config_path.clone(),
+    });
+
+    let server_handle = tokio::spawn(async {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    server_handle.await.unwrap();
     Ok(())
+}
+
+fn build_router() -> Router<AppState> {
+    Router::new()
+        .route("/ws", axum::routing::get(websocket_upgrade))
+        .fallback_service(axum::routing::get_service(ServeDir::new("web-gui/dist")))
 }
 
 fn create_default_config(config_path: &str) -> Result<()> {
@@ -95,44 +116,58 @@ fn create_default_config(config_path: &str) -> Result<()> {
     Ok(())
 }
 
+async fn websocket_upgrade(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let settings = state.settings;
+    let config_path = state.config_path;
+    ws.on_upgrade(move |socket| handle_connection(socket, settings, config_path))
+}
+
 async fn handle_connection(
-    stream: tokio::net::TcpStream,
+    mut stream: WebSocket,
     settings: Arc<Mutex<Settings>>,
     config_path: String,
-) -> Result<()> {
-    let ws_stream = accept_async(stream).await?;
-    println!("WebSocket connection established");
-
-    let (mut ws_send, mut ws_rec) = ws_stream.split();
-
+) {
     // Send the current settings to the client
-    send_message(
-        &mut ws_send,
+    if let Err(e) = send_message(
+        &mut stream,
         InternalMessage {
             message_type: MessageType::Settings,
             body: json!(&*settings),
         },
     )
-    .await?;
+    .await
+    {
+        eprintln!(
+            "There was an error sending the settings to the client: {:?}",
+            e
+        );
+    };
 
     // Loop for responses indicating changes to the settings
     loop {
-        let msg = receive_message(&mut ws_rec).await;
-        let msg = msg?;
-        println!("Received message from gui {:?}", msg);
-        match msg.message_type {
-            MessageType::Settings => {
-                update_settings(
-                    &config_path,
-                    serde_json::from_value::<Settings>(msg.body)?,
-                    settings.clone(),
-                )
-                .await?
+        let msg = receive_message(&mut stream).await;
+        if let Ok(msg) = msg {
+            println!("Received message from gui {:?}", msg);
+            match msg.message_type {
+                MessageType::Settings => {
+                    if let Ok(updated_settings) = serde_json::from_value::<Settings>(msg.body) {
+                        //TODO: handle errors here
+                        update_settings(&config_path, updated_settings, settings.clone()).await;
+                    } else {
+                        eprintln!("Failed to deserialize settings update from client");
+                    }
+                }
             }
+        } else {
+            let e = msg.unwrap_err();
+            eprintln!(
+                "There was an error receiving a message from the gui: {:?}",
+                e
+            );
         }
-        // if msg.is_text() {
-        //     // Deserialize the updated settings from the received message
-        // }
     }
 }
 
@@ -163,21 +198,20 @@ async fn update_settings(
     Ok(())
 }
 
-async fn send_message(
-    ws_send: &mut SplitSink<WebSocketStream<TcpStream>, Message>,
-    message: InternalMessage,
-) -> Result<()> {
-    ws_send
-        .send(Message::Text(serde_json::to_string(&message)?.into()))
+async fn send_message(stream: &mut WebSocket, message: InternalMessage) -> Result<()> {
+    stream
+        .send(AxumMessage::Text(serde_json::to_string(&message)?.into()))
         .await?;
     println!("Sent message to gui: {:?}", message);
     Ok(())
 }
 
-async fn receive_message(
-    ws_rec: &mut SplitStream<WebSocketStream<TcpStream>>,
-) -> Result<InternalMessage> {
-    let msg = ws_rec.next().await.unwrap()?;
-    let message: InternalMessage = serde_json::from_str(msg.to_text()?)?;
-    Ok(message)
+async fn receive_message(stream: &mut WebSocket) -> Result<InternalMessage> {
+    let msg = stream.recv().await.unwrap()?;
+    if let AxumMessage::Text(message) = msg {
+        let int_message: InternalMessage = serde_json::from_str(message.as_str())?;
+        Ok(int_message)
+    } else {
+        Err(anyhow!("Received non-text message from client: {:?}", msg))
+    }
 }

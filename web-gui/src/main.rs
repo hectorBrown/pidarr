@@ -32,7 +32,7 @@ impl SettingsControls {
 #[component]
 pub fn App() -> impl IntoView {
     //TODO: this should be the web address serving
-    let daemon_addr = "ws://127.0.0.1:2323";
+    let daemon_addr = "ws://127.0.0.1:2323/ws";
 
     let settings_controls =
         SettingsControls::new("127.0.0.1:7878".to_string(), "127.0.0.1:8888".to_string());
