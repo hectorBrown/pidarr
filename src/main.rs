@@ -66,14 +66,11 @@ async fn main() -> Result<()> {
                 "Failed to deserialize settings. Recreating the configuration file with default values. A backup of your original config can be found at {}.bak.\n{}",
                 config_path, e
             );
-            match create_default_config(&config_path) {
-                Ok(res) => res,
-                Err(e) => {
-                    eprintln!(
-                        "Failed to create default config at location {}. \n{}",
-                        config_path, e,
-                    );
-                }
+            if let Err(e) = create_default_config(&format!("{}.bak", config_path)) {
+                eprintln!(
+                    "Failed to create backup of config at location {}. \n{}",
+                    config_path, e,
+                );
             }
             Settings::default()
         }
