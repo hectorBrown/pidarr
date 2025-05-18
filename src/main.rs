@@ -160,7 +160,7 @@ async fn handle_connection(
                             eprintln!("There was an error updating the settings: {:?}", e);
                         }
                     } else {
-                        eprintln!("Failed to deserialize settings update from client");
+                        eprintln!("Failed to deserialize settings update from client.");
                     }
                 }
             }
