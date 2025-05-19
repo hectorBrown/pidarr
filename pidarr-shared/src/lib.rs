@@ -8,7 +8,6 @@ macro_rules! settings_fields {
         $macro! {
             radarr_addr:("http://localhost:7878"):("Radarr address"),
             radarr_api_key:(""):("Radarr API key"),
-            radarr_user:("admin"):("Radarr user"),
             qbit_addr:("http://localhost:8080"):("qBittorrent address")
         }
     };
