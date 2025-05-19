@@ -210,6 +210,9 @@ async fn handle_connection(
     };
     let server_loop = async {
         loop {
+            let radarr_addr = settings.lock().unwrap().radarr_addr.clone();
+            let radarr_api_key = settings.lock().unwrap().radarr_api_key.clone();
+            daemon::connect_radarr(radarr_addr, radarr_api_key, daemon_state.clone()).await;
             if let Err(e) = send_message(
                 &mut sender,
                 InternalMessage {
