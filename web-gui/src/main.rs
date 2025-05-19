@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use leptos::logging::{error, log};
 use leptos::mount::mount_to_body;
 use leptos::prelude::*;
-use pidarr_shared::{InternalMessage, MessageType, Settings};
+use pidarr_shared::{InternalMessage, MessageType, Settings, settings_fields};
 use serde::Serialize;
 use serde_json::json;
 use std::cell::RefCell;
@@ -14,29 +14,30 @@ fn main() {
     mount_to_body(App);
 }
 
-#[derive(Clone)]
-struct SettingsControls {
-    pub radarr_addr: RwSignal<String>,
-    pub qbit_addr: RwSignal<String>,
-}
+macro_rules! settings_controls {
+    ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
+        #[derive(Clone)]
+        pub struct SettingsControls {
+            $(pub $field: RwSignal<String>,)*
+        }
 
-impl SettingsControls {
-    pub fn new(radarr_addr: String, qbit_addr: String) -> Arc<Self> {
-        Arc::new(Self {
-            radarr_addr: RwSignal::new(radarr_addr),
-            qbit_addr: RwSignal::new(qbit_addr),
-        })
-    }
+        impl SettingsControls {
+            pub fn new() -> Arc<Self> {
+                Arc::new(Self {
+                    $($field: RwSignal::new($default.to_string()),)*
+                })
+            }
+        }
+    };
 }
+settings_fields!(settings_controls);
 
 #[component]
 pub fn App() -> impl IntoView {
     //TODO: this should be the web address serving
     let daemon_addr = "ws://127.0.0.1:2323/ws";
 
-    let settings_controls =
-        SettingsControls::new("127.0.0.1:7878".to_string(), "127.0.0.1:8888".to_string());
-
+    let settings_controls = SettingsControls::new();
     let connected = RwSignal::new(false);
     let client = Arc::new(RefCell::new(None::<EventClient>));
 
@@ -52,40 +53,40 @@ pub fn App() -> impl IntoView {
         }
     };
 
+    macro_rules! settings_gui_element {
+        ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => { view! {
+            $(<tr>
+                <th>
+                    <p>$desc:</p>
+                </th>
+                <th>
+                    <p>
+                        <input type="text" bind:value=settings_controls.$field />
+                    </p>
+                </th>
+            </tr>)*
+        }}
+    }
+
     // Initial connection attempt
     connect_to_daemon();
 
     view! {
         <p>Connected to daemon: {move || format!(" {}", connected.get().to_string())}</p>
         <table>
-            <tr>
-                <th>
-                    <p>Radarr address:</p>
-                </th>
-                <th>
-                    <p>
-                        <input type="text" bind:value=settings_controls.radarr_addr />
-                    </p>
-                </th>
-            </tr>
-            <tr>
-                <th>
-                    <p>qBittorrent address:</p>
-                </th>
-                <th>
-                    <p>
-                        <input type="text" bind:value=settings_controls.qbit_addr />
-                    </p>
-                </th>
-            </tr>
+            { settings_fields!(settings_gui_element) }
         </table>
         <button on:click=move|_|{
             let settings_controls = settings_controls.clone();
+            macro_rules! settings_payload {
+                ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
+                    Settings {
+                        $( $field: settings_controls.$field.get().to_string(), )*
+                    }
+                }
+            }
             let payload = InternalMessage { message_type: MessageType::Settings,
-            body: json!(Settings {
-                radarr_addr: settings_controls.radarr_addr.get().to_string(),
-                qbit_addr: settings_controls.qbit_addr.get().to_string(),
-            })};
+            body: json!(settings_fields!(settings_payload))};
             if connected.get() {
                 if let Some(client) = client.borrow().as_ref() {
                     match send_to_daemon(&payload, client) {
@@ -170,8 +171,12 @@ fn handle_message(
 
 fn update_settings(settings: Settings, settings_controls: Arc<SettingsControls>) -> Result<()> {
     // Update settings
-    settings_controls.radarr_addr.set(settings.radarr_addr);
-    settings_controls.qbit_addr.set(settings.qbit_addr);
+    macro_rules! update_settings_fields {
+        ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
+            $( settings_controls.$field.set(settings.$field); )*
+        }
+    }
+    settings_fields!(update_settings_fields);
 
     Ok(())
 }
