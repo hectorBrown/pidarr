@@ -219,6 +219,7 @@ async fn send_message(stream: &mut WebSocket, message: InternalMessage) -> Resul
 
 async fn receive_message(stream: &mut WebSocket) -> Result<InternalMessage> {
     let msg = stream.recv().await.unwrap()?;
+    //TODO: handle ping messages
     if let AxumMessage::Text(message) = msg {
         let int_message: InternalMessage = serde_json::from_str(message.as_str())?;
         Ok(int_message)

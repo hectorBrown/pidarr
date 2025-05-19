@@ -98,6 +98,7 @@ pub fn App() -> impl IntoView {
                 error!("Can't save settings, not connected to daemon.")
             }
         }>Save</button>
+        //TODO: this can be removed in prod versions
         <button on:click=move |_| {
             log!("Retrying connection to daemon...");
             connect_to_daemon();
