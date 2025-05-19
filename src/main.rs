@@ -8,6 +8,7 @@ use axum::{
 };
 use config::Config;
 use pidarr_shared::{InternalMessage, MessageType, Settings};
+use radarr_api::apis as radarr;
 use serde_json::json;
 use std::env::var;
 use std::fs::File;

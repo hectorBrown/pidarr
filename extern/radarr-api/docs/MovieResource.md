@@ -1,0 +1,58 @@
+# MovieResource
+
+## Properties
+
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**id** | Option<**i32**> |  | [optional]
+**title** | Option<**String**> |  | [optional]
+**original_title** | Option<**String**> |  | [optional]
+**original_language** | Option<[**models::Language**](Language.md)> |  | [optional]
+**alternate_titles** | Option<[**Vec<models::AlternativeTitleResource>**](AlternativeTitleResource.md)> |  | [optional]
+**secondary_year** | Option<**i32**> |  | [optional]
+**secondary_year_source_id** | Option<**i32**> |  | [optional]
+**sort_title** | Option<**String**> |  | [optional]
+**size_on_disk** | Option<**i64**> |  | [optional]
+**status** | Option<[**models::MovieStatusType**](MovieStatusType.md)> |  | [optional]
+**overview** | Option<**String**> |  | [optional]
+**in_cinemas** | Option<**String**> |  | [optional]
+**physical_release** | Option<**String**> |  | [optional]
+**digital_release** | Option<**String**> |  | [optional]
+**release_date** | Option<**String**> |  | [optional]
+**physical_release_note** | Option<**String**> |  | [optional]
+**images** | Option<[**Vec<models::MediaCover>**](MediaCover.md)> |  | [optional]
+**website** | Option<**String**> |  | [optional]
+**remote_poster** | Option<**String**> |  | [optional]
+**year** | Option<**i32**> |  | [optional]
+**you_tube_trailer_id** | Option<**String**> |  | [optional]
+**studio** | Option<**String**> |  | [optional]
+**path** | Option<**String**> |  | [optional]
+**quality_profile_id** | Option<**i32**> |  | [optional]
+**has_file** | Option<**bool**> |  | [optional]
+**movie_file_id** | Option<**i32**> |  | [optional]
+**monitored** | Option<**bool**> |  | [optional]
+**minimum_availability** | Option<[**models::MovieStatusType**](MovieStatusType.md)> |  | [optional]
+**is_available** | Option<**bool**> |  | [optional]
+**folder_name** | Option<**String**> |  | [optional]
+**runtime** | Option<**i32**> |  | [optional]
+**clean_title** | Option<**String**> |  | [optional]
+**imdb_id** | Option<**String**> |  | [optional]
+**tmdb_id** | Option<**i32**> |  | [optional]
+**title_slug** | Option<**String**> |  | [optional]
+**root_folder_path** | Option<**String**> |  | [optional]
+**folder** | Option<**String**> |  | [optional]
+**certification** | Option<**String**> |  | [optional]
+**genres** | Option<**Vec<String>**> |  | [optional]
+**tags** | Option<**Vec<i32>**> |  | [optional]
+**added** | Option<**String**> |  | [optional]
+**add_options** | Option<[**models::AddMovieOptions**](AddMovieOptions.md)> |  | [optional]
+**ratings** | Option<[**models::Ratings**](Ratings.md)> |  | [optional]
+**movie_file** | Option<[**models::MovieFileResource**](MovieFileResource.md)> |  | [optional]
+**collection** | Option<[**models::MovieCollectionResource**](MovieCollectionResource.md)> |  | [optional]
+**popularity** | Option<**f32**> |  | [optional]
+**last_search_time** | Option<**String**> |  | [optional]
+**statistics** | Option<[**models::MovieStatisticsResource**](MovieStatisticsResource.md)> |  | [optional]
+
+[[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
+
+
