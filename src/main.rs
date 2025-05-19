@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
         );
 
         // Create the file with default settings
-        match create_default_config(&config_path) {
+        match create_default_config(Path::new(&config_path)) {
             Ok(res) => res,
             Err(e) => {
                 eprintln!(
@@ -63,12 +63,12 @@ async fn main() -> Result<()> {
         Ok(settings) => settings,
         Err(e) => {
             eprintln!(
-                "Failed to deserialize settings. Recreating the configuration file with default values. A backup of your original config can be found at {}.bak.\n{}",
+                "Failed to deserialize settings. Recreating the configuration file with default values at {}.\nError: {}",
                 config_path, e
             );
-            if let Err(e) = create_default_config(&format!("{}.bak", config_path)) {
+            if let Err(e) = create_default_config(Path::new(&config_path)) {
                 eprintln!(
-                    "Failed to create backup of config at location {}. \n{}",
+                    "Failed to create config file at location {}. \n{}",
                     config_path, e,
                 );
             }
@@ -102,8 +102,12 @@ fn build_router() -> Router<AppState> {
         .fallback_service(axum::routing::get_service(ServeDir::new("web-gui/dist")))
 }
 
-fn create_default_config(config_path: &str) -> Result<()> {
-    if let Some(parent_dir) = Path::new(config_path).parent() {
+fn create_default_config(config_path: &Path) -> Result<()> {
+    if config_path.exists() {
+        let backup_path = format!("{}.bak", config_path.display());
+        std::fs::rename(config_path, &backup_path)?;
+        println!("Backup of existing config created at: {}", backup_path);
+    } else if let Some(parent_dir) = config_path.parent() {
         std::fs::create_dir_all(parent_dir)?; // Ensure parent directories exist
     }
 
