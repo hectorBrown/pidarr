@@ -109,11 +109,14 @@ pub fn App() -> impl IntoView {
         <table>
             { settings_fields!(settings_gui_element) }
         </table>
-        <p>Connected to Radarr: {move || format!(" {}", match daemon_state_controls.radarr_connected.get() {
+        <p>Connected to Radarr: {move || format!(" {}", if connected.get() { match daemon_state_controls.radarr_connected.get() {
             ConnectionState::Connected => "Connected",
             ConnectionState::Disconnected => "Disconnected",
             ConnectionState::Unauthorized => "Unauthorized",
             ConnectionState::Unknown => "Unknown",
+        }
+        } else {
+            "Unknown"
         })}</p>
         // save settings button -- sends the settings values to the daemon
         <button on:click=move|_|{
