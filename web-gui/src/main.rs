@@ -119,16 +119,7 @@ pub fn App() -> impl IntoView {
 }
 
 fn send_to_daemon(payload: &impl Serialize, client: &EventClient) -> Result<()> {
-    match client.send_string(&serde_json::to_string(&payload)?) {
-        Ok(_) => return Ok(()),
-        Err(_) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to send payload to daemon.",
-            )
-            .into());
-        }
-    };
+    client.send_string(&serde_json::to_string(&payload)?)
 }
 
 fn connect_to_daemon_impl(
