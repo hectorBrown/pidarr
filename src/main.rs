@@ -18,6 +18,8 @@ use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 
+mod daemon;
+
 #[derive(Clone)]
 struct AppState {
     settings: Arc<Mutex<Settings>>,
@@ -89,11 +91,15 @@ async fn main() -> Result<()> {
         config_path: config_path.clone(),
     });
 
-    let server_handle = tokio::spawn(async {
-        axum::serve(listener, app).await.unwrap();
-    });
+    tokio::join!(
+        async {
+            axum::serve(listener, app).await.unwrap();
+        },
+        async {
+            daemon::main().await;
+        }
+    );
 
-    server_handle.await.unwrap();
     Ok(())
 }
 
