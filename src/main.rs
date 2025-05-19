@@ -7,8 +7,11 @@ use axum::{
     response::IntoResponse,
 };
 use config::Config;
-use pidarr_shared::{InternalMessage, MessageType, Settings};
-use radarr_api::apis as radarr;
+use futures_util::{
+    sink::SinkExt,
+    stream::{SplitSink, SplitStream, StreamExt},
+};
+use pidarr_shared::{DaemonState, InternalMessage, MessageType, Settings};
 use serde_json::json;
 use std::env::var;
 use std::fs::File;
@@ -16,6 +19,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
+use tokio::time::{Duration, sleep};
 use tower_http::services::ServeDir;
 
 mod daemon;
@@ -24,6 +28,7 @@ mod daemon;
 #[derive(Clone)]
 struct AppState {
     settings: Arc<Mutex<Settings>>,
+    daemon_state: Arc<Mutex<DaemonState>>,
     config_path: String,
 }
 
@@ -80,6 +85,9 @@ async fn main() -> Result<()> {
         }
     }));
 
+    // initialise default shared var daemon state
+    let daemon_state = Arc::new(Mutex::new(DaemonState::default()));
+
     // host on *arr style addr
     let addr = "127.0.0.1:2323".to_string();
     let listener = TcpListener::bind(&addr).await?;
@@ -88,7 +96,8 @@ async fn main() -> Result<()> {
     //construct the router
 
     let app = build_router().with_state(AppState {
-        settings,
+        settings: settings.clone(),
+        daemon_state: daemon_state.clone(),
         config_path: config_path.clone(),
     });
 
@@ -98,7 +107,7 @@ async fn main() -> Result<()> {
             axum::serve(listener, app).await.unwrap();
         },
         async {
-            daemon::main().await;
+            daemon::main(settings.clone(), daemon_state.clone()).await;
         }
     );
 
@@ -132,18 +141,21 @@ async fn websocket_upgrade(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let settings = state.settings;
+    let daemon_state = state.daemon_state;
     let config_path = state.config_path;
-    ws.on_upgrade(move |socket| handle_connection(socket, settings, config_path))
+    ws.on_upgrade(move |socket| handle_connection(socket, settings, daemon_state, config_path))
 }
 
 async fn handle_connection(
-    mut stream: WebSocket,
+    stream: WebSocket,
     settings: Arc<Mutex<Settings>>,
+    daemon_state: Arc<Mutex<DaemonState>>,
     config_path: String,
 ) {
+    let (mut sender, mut receiver) = stream.split();
     // Send the current settings to the client to populate the form
     if let Err(e) = send_message(
-        &mut stream,
+        &mut sender,
         InternalMessage {
             message_type: MessageType::Settings,
             body: json!(&*settings),
@@ -158,37 +170,71 @@ async fn handle_connection(
     };
 
     // Loop for messages from the client
-    loop {
-        let msg = receive_message(&mut stream).await;
-        if let Ok(msg) = msg {
-            println!("Received message from gui {:?}", msg);
-            match msg.message_type {
-                MessageType::Settings => {
-                    if let Ok(updated_settings) = serde_json::from_value::<Settings>(msg.body) {
-                        if let Err(e) =
-                            update_settings(&config_path, updated_settings, settings.clone()).await
-                        {
-                            eprintln!("There was an error updating the settings: {:?}", e);
+    let client_loop = async {
+        loop {
+            let msg = receive_message(&mut receiver).await;
+            if let Ok(msg) = msg {
+                println!("Received message from gui {:?}", msg);
+                match msg.message_type {
+                    MessageType::Settings => {
+                        if let Ok(updated_settings) = serde_json::from_value::<Settings>(msg.body) {
+                            if let Err(e) = update_settings(
+                                &config_path,
+                                updated_settings,
+                                settings.clone(),
+                                daemon_state.clone(),
+                            )
+                            .await
+                            {
+                                eprintln!("There was an error updating the settings: {:?}", e);
+                            }
+                        } else {
+                            eprintln!("Failed to deserialize settings update from client.");
                         }
-                    } else {
-                        eprintln!("Failed to deserialize settings update from client.");
+                    }
+                    _ => {
+                        eprintln!(
+                            "Received unrecognised message of type {:?}: {:?}",
+                            msg.message_type, msg
+                        );
                     }
                 }
+            } else {
+                let e = msg.unwrap_err();
+                eprintln!(
+                    "There was an error receiving a message from the gui: {:?}",
+                    e
+                );
             }
-        } else {
-            let e = msg.unwrap_err();
-            eprintln!(
-                "There was an error receiving a message from the gui: {:?}",
-                e
-            );
         }
-    }
+    };
+    let server_loop = async {
+        loop {
+            if let Err(e) = send_message(
+                &mut sender,
+                InternalMessage {
+                    message_type: MessageType::DaemonState,
+                    body: json!(&*daemon_state),
+                },
+            )
+            .await
+            {
+                eprintln!(
+                    "There was an error sending the daemon state to the client: {:?}",
+                    e
+                );
+            };
+            sleep(Duration::from_secs(5)).await;
+        }
+    };
+    tokio::join!(client_loop, server_loop);
 }
 
 async fn update_settings(
     config_path: &String,
     updated_settings: Settings,
     settings: Arc<Mutex<Settings>>,
+    daemon_state: Arc<Mutex<DaemonState>>,
 ) -> Result<()> {
     println!(
         "Received settings update from client: {:?}",
@@ -196,8 +242,7 @@ async fn update_settings(
     );
 
     //take out a lock on the shared settings var
-    let mut settings_ref = settings.lock().unwrap();
-    *settings_ref = updated_settings.clone();
+    *settings.lock().unwrap() = updated_settings.clone();
 
     // Save the updated settings to the configuration file
     if let Some(parent_dir) = Path::new(&config_path).parent() {
@@ -210,19 +255,28 @@ async fn update_settings(
     println!("Updated settings saved to {}", config_path);
 
     //TODO: will need to retry connections to tdarr/qbit here
+    daemon::connect_radarr(
+        updated_settings.radarr_addr.clone(),
+        updated_settings.radarr_api_key.clone(),
+        daemon_state.clone(),
+    )
+    .await;
     Ok(())
 }
 
-async fn send_message(stream: &mut WebSocket, message: InternalMessage) -> Result<()> {
-    stream
+async fn send_message(
+    sender: &mut SplitSink<WebSocket, AxumMessage>,
+    message: InternalMessage,
+) -> Result<()> {
+    sender
         .send(AxumMessage::Text(serde_json::to_string(&message)?.into()))
         .await?;
     println!("Sent message to gui: {:?}", message);
     Ok(())
 }
 
-async fn receive_message(stream: &mut WebSocket) -> Result<InternalMessage> {
-    let msg = stream.recv().await.unwrap()?;
+async fn receive_message(receiver: &mut SplitStream<WebSocket>) -> Result<InternalMessage> {
+    let msg = receiver.next().await.unwrap()?;
     //TODO: handle ping messages
     if let AxumMessage::Text(message) = msg {
         let int_message: InternalMessage = serde_json::from_str(message.as_str())?;

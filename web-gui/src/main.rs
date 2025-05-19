@@ -2,7 +2,10 @@ use anyhow::{Result, anyhow};
 use leptos::logging::{error, log};
 use leptos::mount::mount_to_body;
 use leptos::prelude::*;
-use pidarr_shared::{InternalMessage, MessageType, Settings, settings_fields};
+use pidarr_shared::{
+    ConnectionState, DaemonState, InternalMessage, MessageType, Settings, daemon_state_fields,
+    settings_fields,
+};
 use serde::Serialize;
 use serde_json::json;
 use std::cell::RefCell;
@@ -26,13 +29,30 @@ macro_rules! settings_controls {
         impl SettingsControls {
             pub fn new() -> Arc<Self> {
                 Arc::new(Self {
-                    $($field: RwSignal::new($default.to_string()),)*
+                    $($field: RwSignal::new($default),)*
+                })
+            }
+        }
+    };
+}
+macro_rules! daemon_state_controls {
+    ( $( $field:ident : ( $type:ident ) : ( $default:expr ) : ( $desc:expr ) ),* ) => {
+        #[derive(Clone)]
+        pub struct DaemonStateControls {
+            $(pub $field: RwSignal<$type>,)*
+        }
+
+        impl DaemonStateControls {
+            pub fn new() -> Arc<Self> {
+                Arc::new(Self {
+                    $($field: RwSignal::new($default),)*
                 })
             }
         }
     };
 }
 settings_fields!(settings_controls);
+daemon_state_fields!(daemon_state_controls);
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -40,6 +60,7 @@ pub fn App() -> impl IntoView {
     let daemon_addr = "ws://127.0.0.1:2323/ws";
 
     let settings_controls = SettingsControls::new();
+    let daemon_state_controls = DaemonStateControls::new();
     let connected = RwSignal::new(false);
     //TODO: its possible that the client should just be in a rwsignal
     let client = Arc::new(RefCell::new(None::<EventClient>));
@@ -49,9 +70,14 @@ pub fn App() -> impl IntoView {
         let client = client.clone();
         let connected = connected.clone();
         let settings_controls = settings_controls.clone();
+        let daemon_state_controls = daemon_state_controls.clone();
         move || {
-            let new_client =
-                connect_to_daemon_impl(daemon_addr, connected.clone(), settings_controls.clone());
+            let new_client = connect_to_daemon_impl(
+                daemon_addr,
+                connected.clone(),
+                settings_controls.clone(),
+                daemon_state_controls.clone(),
+            );
             //TODO: could this be better with a mutex
             *client.borrow_mut() = Some(new_client);
         }
@@ -83,6 +109,12 @@ pub fn App() -> impl IntoView {
         <table>
             { settings_fields!(settings_gui_element) }
         </table>
+        <p>Connected to Radarr: {move || format!(" {}", match daemon_state_controls.radarr_connected.get() {
+            ConnectionState::Connected => "Connected",
+            ConnectionState::Disconnected => "Disconnected",
+            ConnectionState::Unauthorized => "Unauthorized",
+            ConnectionState::Unknown => "Unknown",
+        })}</p>
         // save settings button -- sends the settings values to the daemon
         <button on:click=move|_|{
             //grab a handle to the arc
@@ -119,13 +151,17 @@ pub fn App() -> impl IntoView {
 }
 
 fn send_to_daemon(payload: &impl Serialize, client: &EventClient) -> Result<()> {
-    client.send_string(&serde_json::to_string(&payload)?)
+    match client.send_string(&serde_json::to_string(&payload)?) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow!("Failed to send message to daemon: {:?}", e)),
+    }
 }
 
 fn connect_to_daemon_impl(
     addr: &str,
     connected: RwSignal<bool>,
     settings_controls: Arc<SettingsControls>,
+    daemon_state_controls: Arc<DaemonStateControls>,
 ) -> EventClient {
     log!("Creating connection with daemon");
     let mut client = wasm_sockets::EventClient::new(addr).unwrap();
@@ -142,7 +178,12 @@ fn connect_to_daemon_impl(
         connected.set(false);
     })));
     client.set_on_message(Some(Box::new(move |client: &EventClient, msg: Message| {
-        if let Err(e) = handle_message(&client, &msg, settings_controls.clone()) {
+        if let Err(e) = handle_message(
+            &client,
+            &msg,
+            settings_controls.clone(),
+            daemon_state_controls.clone(),
+        ) {
             error!("Failed to handle message: {:?}\nError: {}", msg, e);
         };
     })));
@@ -153,6 +194,7 @@ fn handle_message(
     client: &EventClient,
     msg: &Message,
     settings_controls: Arc<SettingsControls>,
+    daemon_state_controls: Arc<DaemonStateControls>,
 ) -> Result<()> {
     // server should never send us a binary message
     let msg_string = match msg {
@@ -171,6 +213,10 @@ fn handle_message(
             serde_json::from_value::<Settings>(message.body)?,
             settings_controls.clone(),
         )?,
+        MessageType::DaemonState => update_daemon_state(
+            serde_json::from_value::<DaemonState>(message.body)?,
+            daemon_state_controls.clone(),
+        )?,
     }
 
     Ok(())
@@ -184,6 +230,20 @@ fn update_settings(settings: Settings, settings_controls: Arc<SettingsControls>)
         }
     }
     settings_fields!(update_settings_fields);
+
+    Ok(())
+}
+
+fn update_daemon_state(
+    state: DaemonState,
+    daemon_state_controls: Arc<DaemonStateControls>,
+) -> Result<()> {
+    macro_rules! update_daemon_state_fields {
+        ( $( $field:ident : ( $type:ident ) : ( $default:expr ) : ( $desc:expr ) ),* ) => {
+            $( daemon_state_controls.$field.set(state.$field); )*
+        }
+    }
+    daemon_state_fields!(update_daemon_state_fields);
 
     Ok(())
 }
