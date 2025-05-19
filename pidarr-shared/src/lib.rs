@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::default::Default;
 
+//this is a macro to define the settings fields
 #[macro_export]
 macro_rules! settings_fields {
     ($macro:ident) => {
@@ -41,6 +42,7 @@ pub enum MessageType {
     Settings,
 }
 
+//characterises an internal message between the daemon and web gui
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct InternalMessage {
     pub message_type: MessageType,

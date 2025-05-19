@@ -14,6 +14,8 @@ fn main() {
     mount_to_body(App);
 }
 
+// defines a struct that contains the settings controls -- i.e. the leptos RwSignals that are bound
+// to the gui elements, initialises with the shared defaults
 macro_rules! settings_controls {
     ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
         #[derive(Clone)]
@@ -39,9 +41,10 @@ pub fn App() -> impl IntoView {
 
     let settings_controls = SettingsControls::new();
     let connected = RwSignal::new(false);
+    //TODO: its possible that the client should just be in a rwsignal
     let client = Arc::new(RefCell::new(None::<EventClient>));
 
-    // Function to attempt connection
+    // Function to attempt connection to the daemon
     let connect_to_daemon = {
         let client = client.clone();
         let connected = connected.clone();
@@ -49,10 +52,12 @@ pub fn App() -> impl IntoView {
         move || {
             let new_client =
                 connect_to_daemon_impl(daemon_addr, connected.clone(), settings_controls.clone());
+            //TODO: could this be better with a mutex
             *client.borrow_mut() = Some(new_client);
         }
     };
 
+    //this defines the gui element that handles each settings field in HTML
     macro_rules! settings_gui_element {
         ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => { view! {
             $(<tr>
@@ -71,13 +76,19 @@ pub fn App() -> impl IntoView {
     // Initial connection attempt
     connect_to_daemon();
 
+    // define the main view
     view! {
         <p>Connected to daemon: {move || format!(" {}", connected.get().to_string())}</p>
+        // list of settings and input fields
         <table>
             { settings_fields!(settings_gui_element) }
         </table>
+        // save settings button -- sends the settings values to the daemon
         <button on:click=move|_|{
+            //grab a handle to the arc
             let settings_controls = settings_controls.clone();
+            // defines a payload which is just a pidarr_shared setting struct with the data from
+            // settings_controls
             macro_rules! settings_payload {
                 ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
                     Settings {
@@ -87,6 +98,7 @@ pub fn App() -> impl IntoView {
             }
             let payload = InternalMessage { message_type: MessageType::Settings,
             body: json!(settings_fields!(settings_payload))};
+            //attempt to send the payload to the daemon
             if connected.get() {
                 if let Some(client) = client.borrow().as_ref() {
                     match send_to_daemon(&payload, client) {
@@ -151,15 +163,18 @@ fn handle_message(
     msg: &Message,
     settings_controls: Arc<SettingsControls>,
 ) -> Result<()> {
+    // server should never send us a binary message
     let msg_string = match msg {
         Message::Text(s) => Ok(s),
         Message::Binary(u) => Err(anyhow!("Binary message received from server: {:?}", u)),
     }?;
 
+    // deserialize into an internalmessage
     let message: InternalMessage = serde_json::from_str(&msg_string)?;
 
     log!("Received message from daemon: {:?}", message);
 
+    // act based on message type
     match message.message_type {
         MessageType::Settings => update_settings(
             serde_json::from_value::<Settings>(message.body)?,
@@ -171,7 +186,7 @@ fn handle_message(
 }
 
 fn update_settings(settings: Settings, settings_controls: Arc<SettingsControls>) -> Result<()> {
-    // Update settings
+    // use the settings fields macro to set all settings_controls with the received payload
     macro_rules! update_settings_fields {
         ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
             $( settings_controls.$field.set(settings.$field); )*

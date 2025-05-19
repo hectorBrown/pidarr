@@ -20,6 +20,7 @@ use tower_http::services::ServeDir;
 
 mod daemon;
 
+//app state for the axum websocket server
 #[derive(Clone)]
 struct AppState {
     settings: Arc<Mutex<Settings>>,
@@ -91,6 +92,7 @@ async fn main() -> Result<()> {
         config_path: config_path.clone(),
     });
 
+    // await both the webserver and the daemon
     tokio::join!(
         async {
             axum::serve(listener, app).await.unwrap();
@@ -104,6 +106,7 @@ async fn main() -> Result<()> {
 }
 
 fn build_router() -> Router<AppState> {
+    //router serves leptos wasm (from web-gui) on the root, and accepts websocketupgrade on /ws
     Router::new()
         .route("/ws", axum::routing::get(websocket_upgrade))
         .fallback_service(axum::routing::get_service(ServeDir::new("web-gui/dist")))
@@ -138,7 +141,7 @@ async fn handle_connection(
     settings: Arc<Mutex<Settings>>,
     config_path: String,
 ) {
-    // Send the current settings to the client
+    // Send the current settings to the client to populate the form
     if let Err(e) = send_message(
         &mut stream,
         InternalMessage {
@@ -154,7 +157,7 @@ async fn handle_connection(
         );
     };
 
-    // Loop for responses indicating changes to the settings
+    // Loop for messages from the client
     loop {
         let msg = receive_message(&mut stream).await;
         if let Ok(msg) = msg {
@@ -192,6 +195,7 @@ async fn update_settings(
         updated_settings
     );
 
+    //take out a lock on the shared settings var
     let mut settings_ref = settings.lock().unwrap();
     *settings_ref = updated_settings.clone();
 
