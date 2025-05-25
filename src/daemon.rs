@@ -123,27 +123,25 @@ async fn get_tdarr_root_folder(
     Ok(tdarr_root_folder)
 }
 
-async fn daemon_update(
-    settings: Arc<Mutex<Settings>>,
-    api_configs: Arc<Mutex<ApiConfigs>>,
-    state: Arc<Mutex<DaemonState>>,
-) -> Result<()> {
-    //make sure we have all the api configs we need
-    let settings = settings.lock().unwrap().clone();
-    let (radarr_config, tdarr_config, mut qbit_config) =
-        get_api_configs(settings, api_configs.clone(), state.clone()).await?;
-    let radarr_root_folder = get_radarr_root_folder(&radarr_config).await?;
-    let tdarr_root_folder = get_tdarr_root_folder(&tdarr_config).await?;
+struct GrabbedMediaResource {
+    path: String,
+    download_id: String,
+    title: String,
+}
+
+async fn get_radarr_grabbed_media(
+    configuration: &radarr::configuration::Configuration,
+    radarr_root_folder: &String,
+) -> Result<Vec<GrabbedMediaResource>> {
     let grabbed_torrents = radarr::history_api::api_v3_history_since_get(
-        &radarr_config,
+        configuration,
         None,
         Some(radarr_api::models::MovieHistoryEventType::Grabbed),
         Some(true),
     )
     .await?;
-    //loop through all the grabbed torrents in radarr's history
+    let mut res = Vec::new();
     for torrent in grabbed_torrents {
-        //this is an internal id
         let movie = torrent
             .movie
             .as_ref()
@@ -163,40 +161,66 @@ async fn daemon_update(
             .as_ref()
             .context(format!("No source title found in resource {:?}", &torrent))?;
         let path = [parent_path, filename.to_string()].join("/");
+        let title = movie
+            .title
+            .as_ref()
+            .context(format!("No title found in resource {:?}", &torrent))?
+            .as_ref()
+            .context(format!("No title found in resource {:?}", &torrent))?
+            .clone();
+        let download_id = torrent
+            .download_id
+            .as_ref()
+            .context(format!(
+                "Failed to get download id in resource {:?}",
+                &torrent
+            ))?
+            .as_ref()
+            .context(format!(
+                "Failed to get download id in resource {:?}",
+                &torrent
+            ))?
+            .clone();
+        res.push(GrabbedMediaResource {
+            path,
+            download_id,
+            title,
+        });
+    }
+    Ok(res)
+}
+
+async fn daemon_update(
+    settings: Arc<Mutex<Settings>>,
+    api_configs: Arc<Mutex<ApiConfigs>>,
+    state: Arc<Mutex<DaemonState>>,
+) -> Result<()> {
+    //make sure we have all the api configs we need
+    let settings = settings.lock().unwrap().clone();
+    let (radarr_config, tdarr_config, mut qbit_config) =
+        get_api_configs(settings, api_configs.clone(), state.clone()).await?;
+    let radarr_root_folder = get_radarr_root_folder(&radarr_config).await?;
+    let tdarr_root_folder = get_tdarr_root_folder(&tdarr_config).await?;
+    //loop through all the grabbed torrents in radarr's history
+    let radarr_grabbed_media =
+        get_radarr_grabbed_media(&radarr_config, &radarr_root_folder).await?;
+    for item in radarr_grabbed_media {
         // if the daemon state does not have an entry for this id, we add it
         let mut media = state.lock().unwrap().media.clone();
-        if let std::collections::hash_map::Entry::Vacant(_) = media.entry(path.clone()) {
-            let title = movie
-                .title
-                .as_ref()
-                .context(format!("No title found in resource {:?}", &torrent))?
-                .as_ref()
-                .context(format!("No title found in resource {:?}", &torrent))?;
-            let download_id = torrent
-                .download_id
-                .as_ref()
-                .context(format!(
-                    "Failed to get download id in resource {:?}",
-                    &torrent
-                ))?
-                .as_ref()
-                .context(format!(
-                    "Failed to get download id in resource {:?}",
-                    &torrent
-                ))?;
+        if let std::collections::hash_map::Entry::Vacant(_) = media.entry(item.path.clone()) {
             //we insert the media item here, unfinished
             let media = Media {
-                title: title.clone(),
-                download_id: download_id.clone(),
+                title: item.title.clone(),
+                download_id: item.download_id,
                 download_progress: None,
                 transcode_progress: None,
                 status: MediaStatus::Unknown,
             };
             println!(
                 "-----------\nFound movie: {} at path {}\n{:?}\n-----------",
-                &title, &path, &media
+                &item.title, &item.path, &media
             );
-            state.lock().unwrap().media.insert(path.clone(), media);
+            state.lock().unwrap().media.insert(item.path, media);
         }
 
         // for each item of media
