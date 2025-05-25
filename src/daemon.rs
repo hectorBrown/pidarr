@@ -50,6 +50,11 @@ async fn daemon_update(
         get_api_configs(settings, api_configs.clone(), state.clone()).await?;
     let radarr_root_folder = get_radarr_root_folder(&radarr_config).await?;
     let tdarr_root_folder = get_tdarr_root_folder(&tdarr_config).await?;
+
+    //
+    //RADARR SECTION
+    //
+
     //loop through all the grabbed torrents in radarr's history
     let radarr_grabbed_media =
         get_radarr_grabbed_media(&radarr_config, &radarr_root_folder).await?;
@@ -72,6 +77,10 @@ async fn daemon_update(
             state.lock().unwrap().media.insert(item.path, media);
         }
     }
+
+    //
+    //QBIT SECTION
+    //
 
     //grab all hashes that are in qbittorrent
     let hashes = get_qbit_torrent_hashes(&mut qbit_config).await?;
@@ -110,6 +119,11 @@ async fn daemon_update(
             media.status = MediaStatus::Transcoding;
         }
     }
+
+    //
+    // TDARR SECTION
+    //
+
     //tdarr there are media in the queue, and associated with nodes
     // we have to scan each node -- and then each worker -- and all files
     let tdarr_nodes = tdarr::nodes_api::api_v2_get_nodes_get(&tdarr_config)
