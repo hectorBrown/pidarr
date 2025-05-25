@@ -1,6 +1,7 @@
 use pidarr_shared::{ConnectionState, DaemonState, Settings};
 use radarr_api::apis as radarr;
 use std::sync::{Arc, Mutex};
+use tdarr_api::apis as tdarr;
 
 pub async fn main(settings: Arc<Mutex<Settings>>, state: Arc<Mutex<DaemonState>>) {
     let radarr_addr = settings.lock().unwrap().radarr_addr.clone();

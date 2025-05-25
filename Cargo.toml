@@ -19,3 +19,4 @@ serde = "1.0.219"
 axum = { version = "0.8.4", features = ["ws"] }
 tower-http = { version = "0.6.4", features = ["fs"] }
 radarr-api = { path = "./extern/radarr-api/" }
+tdarr-api = { path = "./extern/tdarr-api/" }

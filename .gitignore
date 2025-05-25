@@ -2,3 +2,4 @@ target
 dist
 testing-services/radarr/
 testing-services/qbit/
+testing-services/tdarr/
