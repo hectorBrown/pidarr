@@ -157,27 +157,6 @@ async fn daemon_update(
             }
         }
     }
-    let tdarr_staging = tdarr::default_api::api_v2_cruddb_post(
-        &tdarr_config,
-        Some(tdarr_api::models::ApiV2CruddbPostRequest {
-            data: Box::new(tdarr_api::models::ApiV2CruddbPostRequestData {
-                collection:
-                    tdarr_api::models::_api_v2_cruddb_post_request_data::Collection::StagedJsondb,
-                mode: tdarr_api::models::_api_v2_cruddb_post_request_data::Mode::GetAll,
-                doc_id: None,
-                obj: None,
-            }),
-        }),
-    )
-    .await?
-    .as_array()
-    .context("Could not get Tdarr staging info")?
-    .clone();
-    for file in tdarr_staging {
-        let file = file
-            .as_object()
-            .context(format!("Couldn't get tdarr staging entry: {}", file))?;
-    }
 
     Ok(())
 }
