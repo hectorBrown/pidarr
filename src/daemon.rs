@@ -91,20 +91,8 @@ async fn daemon_update(
         let hash = hashes
             .get(&item.download_id)
             .context(format!("Could not find torrent hash for item {:?}", &item))?;
-        let props_value = qbit_config
-            .torrents_get_torrent_generic_properties(hash)
-            .await
-            .map_err(|e| anyhow!("{}", e))?;
-        let props = props_value.as_object().context(format!(
-            "Could not get torrent properties for item {:?}",
-            &item
-        ))?;
-        let progress = props
-            .get("progress")
-            .context(format!("Could not get progress for item {:?}", &item))?
-            .as_f64()
-            .context(format!("Could not get progress for item {:?}", &item))?
-            * 100.0;
+        let props = get_qbit_torrent_props(&mut qbit_config, hash).await?;
+        let progress = props.progress;
         let mut state = state.lock().unwrap();
         let media = state
             .media
@@ -192,6 +180,37 @@ async fn daemon_update(
     }
 
     Ok(())
+}
+
+struct QbitTorrentProps {
+    progress: f64,
+}
+
+async fn get_qbit_torrent_props(
+    qbit_config: &mut QbitApi,
+    hash: &qbit::torrents::info::TorrentHash,
+) -> Result<QbitTorrentProps> {
+    let props_value = qbit_config
+        .torrents_get_torrent_generic_properties(hash)
+        .await
+        .map_err(|e| anyhow!("{}", e))?;
+    let props = props_value.as_object().context(format!(
+        "Could not get torrent properties for item with hash {:?}",
+        hash
+    ))?;
+    let progress = props
+        .get("progress")
+        .context(format!(
+            "Could not get progress for item with hash {:?}",
+            hash
+        ))?
+        .as_f64()
+        .context(format!(
+            "Could not get progress for item with hash {:?}",
+            hash
+        ))?
+        * 100.0;
+    Ok(QbitTorrentProps { progress })
 }
 
 async fn get_qbit_torrent_hashes(
