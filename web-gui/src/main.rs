@@ -97,6 +97,25 @@ pub fn App() -> impl IntoView {
             </tr>)*
         }}
     }
+    macro_rules! connection_element {
+        ( $field:ident , ($desc:expr)) => {
+            view! {
+            <p>$desc: {
+                let daemon_state_controls = daemon_state_controls.clone();
+                move || {
+                format!(" {}", if connected.get() {
+                    match daemon_state_controls.radarr_connected.get() {
+                        ConnectionState::Connected => "Connected",
+                        ConnectionState::Disconnected => "Disconnected",
+                        ConnectionState::Unauthorized => "Unauthorized",
+                        ConnectionState::Unknown => "Unknown",
+                    }
+                } else {
+                    "Unknown"
+                })
+            }}</p> }
+        };
+    }
 
     // Initial connection attempt
     connect_to_daemon();
@@ -109,19 +128,13 @@ pub fn App() -> impl IntoView {
             false => "Disconnected",
         })}</p>
         // list of settings and input fields
+        { connection_element!(radarr_connected, ("Connected to Radarr")) }
+        { connection_element!(qbit_connected, ("Connected to qBittorrent")) }
+        { connection_element!(tdarr_connected, ("Connected to Tdarr")) }
         <h2>Settings</h2>
         <table>
             { settings_fields!(settings_gui_element) }
         </table>
-        <p>Connected to Radarr: {move || format!(" {}", if connected.get() { match daemon_state_controls.radarr_connected.get() {
-            ConnectionState::Connected => "Connected",
-            ConnectionState::Disconnected => "Disconnected",
-            ConnectionState::Unauthorized => "Unauthorized",
-            ConnectionState::Unknown => "Unknown",
-        }
-        } else {
-            "Unknown"
-        })}</p>
         // save settings button -- sends the settings values to the daemon
         <button on:click=move|_|{
             //grab a handle to the arc
