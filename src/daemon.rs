@@ -39,13 +39,15 @@ pub async fn main(
     }
 }
 
-async fn daemon_update(
-    settings: Arc<Mutex<Settings>>,
+async fn get_api_configs(
+    settings: Settings,
     api_configs: Arc<Mutex<ApiConfigs>>,
     state: Arc<Mutex<DaemonState>>,
-) -> Result<()> {
-    //make sure we have all the api configs we need
-    let settings = settings.lock().unwrap().clone();
+) -> Result<(
+    radarr::configuration::Configuration,
+    tdarr::configuration::Configuration,
+    QbitApi,
+)> {
     let _api_configs = api_configs.lock().unwrap().clone();
     let radarr_config = match _api_configs.radarr_config {
         Some(c) => c,
@@ -73,7 +75,7 @@ async fn daemon_update(
             config
         }
     };
-    let mut qbit_config = match _api_configs.qbit_config {
+    let qbit_config = match _api_configs.qbit_config {
         Some(c) => c,
         None => {
             println!("Attempting connection to qBittorrent");
@@ -84,6 +86,18 @@ async fn daemon_update(
             config
         }
     };
+    Ok((radarr_config, tdarr_config, qbit_config))
+}
+
+async fn daemon_update(
+    settings: Arc<Mutex<Settings>>,
+    api_configs: Arc<Mutex<ApiConfigs>>,
+    state: Arc<Mutex<DaemonState>>,
+) -> Result<()> {
+    //make sure we have all the api configs we need
+    let settings = settings.lock().unwrap().clone();
+    let (radarr_config, tdarr_config, mut qbit_config) =
+        get_api_configs(settings, api_configs.clone(), state.clone()).await?;
     let grabbed_torrents = radarr::history_api::api_v3_history_since_get(
         &radarr_config,
         None,

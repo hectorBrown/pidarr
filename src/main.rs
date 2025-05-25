@@ -189,14 +189,9 @@ async fn handle_connection(
                 match msg.message_type {
                     MessageType::Settings => {
                         if let Ok(updated_settings) = serde_json::from_value::<Settings>(msg.body) {
-                            if let Err(e) = update_settings(
-                                &config_path,
-                                updated_settings,
-                                settings.clone(),
-                                daemon_state.clone(),
-                                api_configs.clone(),
-                            )
-                            .await
+                            if let Err(e) =
+                                update_settings(&config_path, updated_settings, settings.clone())
+                                    .await
                             {
                                 eprintln!("There was an error updating the settings: {:?}", e);
                             }
@@ -246,8 +241,6 @@ async fn update_settings(
     config_path: &String,
     updated_settings: Settings,
     settings: Arc<Mutex<Settings>>,
-    daemon_state: Arc<Mutex<DaemonState>>,
-    api_configs: Arc<Mutex<daemon::ApiConfigs>>,
 ) -> Result<()> {
     println!(
         "Received settings update from client: {:?}",
