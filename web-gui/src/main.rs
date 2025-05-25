@@ -103,7 +103,11 @@ pub fn App() -> impl IntoView {
 
     // define the main view
     view! {
-        <p>Connected to daemon: {move || format!(" {}", connected.get().to_string())}</p>
+        <h2>Status</h2>
+        <p>Connected to daemon: {move || format!(" {}", match connected.get() {
+            true => "Connected",
+            false => "Disconnected",
+        })}</p>
         // list of settings and input fields
         <table>
             { settings_fields!(settings_gui_element) }
