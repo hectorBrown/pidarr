@@ -1,8 +1,14 @@
-use pidarr_shared::{ConnectionState, DaemonState, Settings};
+use anyhow::{Context, Result, anyhow};
+use pidarr_shared::{ConnectionState, DaemonState, Media, MediaStatus, Settings};
 use qbittorrent_rust::{api_fns as qbit, core::api::QbitApi};
 use radarr_api::apis as radarr;
-use std::sync::{Arc, Mutex};
+use std::path::Path;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use tdarr_api::apis as tdarr;
+use tokio::time::{Duration, sleep};
 
 #[derive(Clone)]
 pub struct ApiConfigs {
@@ -24,8 +30,259 @@ pub async fn main(
         connect_radarr(radarr_addr, radarr_api_key, state.clone()).await;
     api_configs.lock().unwrap().qbit_config = connect_qbit(qbit_addr, state.clone()).await;
     api_configs.lock().unwrap().tdarr_config = connect_tdarr(tdarr_addr, state.clone()).await;
+    loop {
+        match daemon_update(settings.clone(), api_configs.clone(), state.clone()).await {
+            Ok(_) => {}
+            Err(e) => eprintln!("There was an error updating the daemon: {}", e),
+        };
+        sleep(Duration::from_secs(5)).await;
+    }
 }
 
+async fn daemon_update(
+    settings: Arc<Mutex<Settings>>,
+    api_configs: Arc<Mutex<ApiConfigs>>,
+    state: Arc<Mutex<DaemonState>>,
+) -> Result<()> {
+    //make sure we have all the api configs we need
+    let settings = settings.lock().unwrap().clone();
+    let _api_configs = api_configs.lock().unwrap().clone();
+    let radarr_config = match _api_configs.radarr_config {
+        Some(c) => c,
+        None => {
+            println!("Attempting connection to Radarr");
+            let config = connect_radarr(
+                settings.radarr_addr.clone(),
+                settings.radarr_api_key.clone(),
+                state.clone(),
+            )
+            .await
+            .context("Failed to connect to Radarr")?;
+            api_configs.lock().unwrap().radarr_config = Some(config.clone());
+            config
+        }
+    };
+    let tdarr_config = match _api_configs.tdarr_config {
+        Some(c) => c,
+        None => {
+            println!("Attempting connection to Tdarr");
+            let config = connect_tdarr(settings.tdarr_addr.clone(), state.clone())
+                .await
+                .context("Failed to connect to Tdarr")?;
+            api_configs.lock().unwrap().tdarr_config = Some(config.clone());
+            config
+        }
+    };
+    let mut qbit_config = match _api_configs.qbit_config {
+        Some(c) => c,
+        None => {
+            println!("Attempting connection to qBittorrent");
+            let config = connect_qbit(settings.qbit_addr.clone(), state.clone())
+                .await
+                .context("Failed to connect to qBittorrent")?;
+            api_configs.lock().unwrap().qbit_config = Some(config.clone());
+            config
+        }
+    };
+    let grabbed_torrents = radarr::history_api::api_v3_history_since_get(
+        &radarr_config,
+        None,
+        Some(radarr_api::models::MovieHistoryEventType::Grabbed),
+        Some(true),
+    )
+    .await?;
+    let radarr_root_folder = radarr::root_folder_api::api_v3_rootfolder_get(&radarr_config).await?
+        [0]
+    .path
+    .clone()
+    .context("Could not get root folder path from Radarr")?
+    .context("Could not get root folder path from Radarr")?;
+    let tdarr_root_folder = tdarr::default_api::api_v2_cruddb_post(
+        &tdarr_config,
+        Some(tdarr_api::models::ApiV2CruddbPostRequest {
+            data: Box::new(tdarr_api::models::ApiV2CruddbPostRequestData {
+                collection: tdarr_api::models::_api_v2_cruddb_post_request_data::Collection::LibrarySettingsJsondb,
+                mode: tdarr_api::models::_api_v2_cruddb_post_request_data::Mode::GetAll,
+                doc_id: None,
+                obj: None,
+            }),
+        }),
+    )
+    .await?.as_array().context("Could not get Tdarr root folder")?[0].as_object().context("Could not get Tdarr root folder")?
+        .get("folder")
+        .context("Could not get Tdarr root folder")?
+        .as_str()
+        .context("Could not get Tdarr root folder")?.to_string();
+    //loop through all the grabbed torrents in radarr's history
+    for torrent in grabbed_torrents {
+        //this is an internal id
+        let movie = torrent
+            .movie
+            .as_ref()
+            .context(format!("No movie found in resource {:?}", &torrent))?;
+        let parent_path = movie
+            .path
+            .as_ref()
+            .context(format!("No movie path found in resource {:?}", &torrent))?
+            .as_ref()
+            .context(format!("No movie path found in resource {:?}", &torrent))?
+            [radarr_root_folder.len()..]
+            .to_string();
+        let filename = torrent
+            .source_title
+            .as_ref()
+            .context(format!("No source title found in resource {:?}", &torrent))?
+            .as_ref()
+            .context(format!("No source title found in resource {:?}", &torrent))?;
+        let path = [parent_path, filename.to_string()].join("/");
+        // if the daemon state does not have an entry for this id, we add it
+        let mut media = state.lock().unwrap().media.clone();
+        if let std::collections::hash_map::Entry::Vacant(_) = media.entry(path.clone()) {
+            let title = movie
+                .title
+                .as_ref()
+                .context(format!("No title found in resource {:?}", &torrent))?
+                .as_ref()
+                .context(format!("No title found in resource {:?}", &torrent))?;
+            let download_id = torrent
+                .download_id
+                .as_ref()
+                .context(format!(
+                    "Failed to get download id in resource {:?}",
+                    &torrent
+                ))?
+                .as_ref()
+                .context(format!(
+                    "Failed to get download id in resource {:?}",
+                    &torrent
+                ))?;
+            //we insert the media item here, unfinished
+            let media = Media {
+                title: title.clone(),
+                download_id: download_id.clone(),
+                download_progress: None,
+                transcode_progress: None,
+                status: MediaStatus::Unknown,
+            };
+            println!(
+                "-----------\nFound movie: {} at path {}\n{:?}\n-----------",
+                &title, &path, &media
+            );
+            state.lock().unwrap().media.insert(path.clone(), media);
+        }
+
+        // for each item of media
+        let media = state.lock().unwrap().media.clone();
+        //grab all hashes that are in qbittorrent
+        let hashes: HashMap<String, qbit::torrents::info::TorrentHash> = qbit_config
+            .torrents_get_hashes()
+            .await
+            .map_err(|e| anyhow!("{}", e))?
+            .into_iter()
+            .map(|hash| (hash.hash.clone().to_uppercase(), hash))
+            .collect();
+        for (id, item) in media {
+            // match radarr's download_id with the hashes in qBittorrent
+            let hash = hashes
+                .get(&item.download_id)
+                .context(format!("Could not find torrent hash for item {:?}", &item))?;
+            let props_value = qbit_config
+                .torrents_get_torrent_generic_properties(hash)
+                .await
+                .map_err(|e| anyhow!("{}", e))?;
+            let props = props_value.as_object().context(format!(
+                "Could not get torrent properties for item {:?}",
+                &item
+            ))?;
+            let progress = props
+                .get("progress")
+                .context(format!("Could not get progress for item {:?}", &item))?
+                .as_f64()
+                .context(format!("Could not get progress for item {:?}", &item))?
+                * 100.0;
+            let mut state = state.lock().unwrap();
+            let media = state
+                .media
+                .get_mut(&id)
+                .context(format!("Could not get media object for item {:?}", &item))?;
+            //update download progress for each torrent
+            media.download_progress = Some(progress);
+            if progress < 100.0 {
+                media.status = MediaStatus::Downloading;
+            } else if progress == 100.0 {
+                //TODO: extra logic for if transcoding is finished
+                media.status = MediaStatus::Transcoding;
+            }
+        }
+    }
+    //tdarr there are media in the queue, and associated with nodes
+    // we have to scan each node -- and then each worker -- and all files
+    let tdarr_nodes = tdarr::nodes_api::api_v2_get_nodes_get(&tdarr_config)
+        .await
+        .context("Failed to get Tdarr nodes")?;
+    for (_, node) in tdarr_nodes {
+        let workers = node
+            .as_object()
+            .context("Failed to get Tdarr workers")?
+            .get("workers")
+            .context("Failed to get Tdarr workers")?
+            .as_object()
+            .context("Failed to get Tdarr workers")?;
+        for (_, worker) in workers {
+            let worker = worker.as_object().context("Failed to get Tdarr worker")?;
+            let path_buf = Path::new(
+                &worker
+                    .get("file")
+                    .context("Failed to get Tdarr worker file")?
+                    .as_str()
+                    .context("Failed to get Tdarr worker file")?[tdarr_root_folder.len()..],
+            )
+            .with_extension("");
+            let path = path_buf.to_str().unwrap();
+            // TODO: this is so fucked -- i have no idea why but the radarr api outputs a filename
+            // that is one character shorter -- if any torrents differ by only 1 character, i guess
+            // you bring it on yourself... still makes me deeply unhappy
+            let path = path[..path.len() - 1].to_string();
+            let progress = worker
+                .get("percentage")
+                .context("Failed to get Tdarr worker progress")?
+                .as_f64()
+                .context("Failed to get Tdarr worker progress")?;
+            let mut state = state.lock().unwrap();
+            let media = state
+                .media
+                .get_mut(&path)
+                .context(format!("Could not get media object for item {:?}", &path))?;
+            //update transcode progress for each torrent
+            media.transcode_progress = Some(progress);
+            if progress == 1.0 {
+                media.status = MediaStatus::Completed;
+            }
+        }
+    }
+    let tdarr_staging = tdarr::default_api::api_v2_cruddb_post(
+        &tdarr_config,
+        Some(tdarr_api::models::ApiV2CruddbPostRequest {
+            data: Box::new(tdarr_api::models::ApiV2CruddbPostRequestData {
+                collection:
+                    tdarr_api::models::_api_v2_cruddb_post_request_data::Collection::StagedJsondb,
+                mode: tdarr_api::models::_api_v2_cruddb_post_request_data::Mode::GetAll,
+                doc_id: None,
+                obj: None,
+            }),
+        }),
+    )
+    .await?
+    .as_array()
+    .context("Could not get Tdarr staging info")?
+    .clone();
+    for file in tdarr_staging {
+        let file = file
+            .as_object()
+            .context(format!("Couldn't get tdarr staging entry: {}", file))?;
+    }
+
+    Ok(())
 }
 
 pub async fn connect_radarr(
