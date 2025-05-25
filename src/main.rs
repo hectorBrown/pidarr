@@ -150,9 +150,8 @@ async fn websocket_upgrade(
     let settings = state.settings;
     let daemon_state = state.daemon_state;
     let config_path = state.config_path;
-    let api_configs = state.api_configs;
     ws.on_upgrade(move |socket| {
-        handle_connection(socket, settings, daemon_state, api_configs, config_path)
+        handle_connection(socket, settings, daemon_state, config_path)
     })
 }
 
@@ -160,7 +159,6 @@ async fn handle_connection(
     stream: WebSocket,
     settings: Arc<Mutex<Settings>>,
     daemon_state: Arc<Mutex<DaemonState>>,
-    api_configs: Arc<Mutex<daemon::ApiConfigs>>,
     config_path: String,
 ) {
     let (mut sender, mut receiver) = stream.split();
