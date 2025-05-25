@@ -114,7 +114,34 @@ async fn daemon_update(
 
     //tdarr there are media in the queue, and associated with nodes
     // we have to scan each node -- and then each worker -- and all files
-    let tdarr_nodes = tdarr::nodes_api::api_v2_get_nodes_get(&tdarr_config)
+    let workers = get_tdarr_all_workers(&tdarr_config, &tdarr_root_folder).await?;
+    for worker in workers {
+        let mut state = state.lock().unwrap();
+        let media = state.media.get_mut(&worker.path).context(format!(
+            "Could not get media object for item {:?}",
+            &worker.path
+        ))?;
+        //update transcode progress for each torrent
+        media.transcode_progress = Some(worker.progress);
+        if worker.progress == 100.0 {
+            media.status = MediaStatus::Completed;
+        }
+    }
+
+    Ok(())
+}
+
+struct TdarrWorker {
+    path: String,
+    progress: f64,
+}
+
+async fn get_tdarr_all_workers(
+    tdarr_config: &tdarr::configuration::Configuration,
+    tdarr_root_folder: &str,
+) -> Result<Vec<TdarrWorker>> {
+    let mut res = Vec::new();
+    let tdarr_nodes = tdarr::nodes_api::api_v2_get_nodes_get(tdarr_config)
         .await
         .context("Failed to get Tdarr nodes")?;
     for (_, node) in tdarr_nodes {
@@ -126,7 +153,6 @@ async fn daemon_update(
             .as_object()
             .context("Failed to get Tdarr workers")?;
         for (_, worker) in workers {
-            let worker = worker.as_object().context("Failed to get Tdarr worker")?;
             let path_buf = Path::new(
                 &worker
                     .get("file")
@@ -145,20 +171,10 @@ async fn daemon_update(
                 .context("Failed to get Tdarr worker progress")?
                 .as_f64()
                 .context("Failed to get Tdarr worker progress")?;
-            let mut state = state.lock().unwrap();
-            let media = state
-                .media
-                .get_mut(&path)
-                .context(format!("Could not get media object for item {:?}", &path))?;
-            //update transcode progress for each torrent
-            media.transcode_progress = Some(progress);
-            if progress == 1.0 {
-                media.status = MediaStatus::Completed;
-            }
+            res.push(TdarrWorker { path, progress });
         }
     }
-
-    Ok(())
+    Ok(res)
 }
 
 struct QbitTorrentProps {
