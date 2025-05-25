@@ -153,6 +153,7 @@ async fn get_tdarr_all_workers(
             .as_object()
             .context("Failed to get Tdarr workers")?;
         for (_, worker) in workers {
+            //TODO:: is there logic here in case a worker isn't processing anything?
             let path_buf = Path::new(
                 &worker
                     .get("file")
