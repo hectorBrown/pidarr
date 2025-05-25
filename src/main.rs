@@ -30,6 +30,7 @@ struct AppState {
     settings: Arc<Mutex<Settings>>,
     daemon_state: Arc<Mutex<DaemonState>>,
     config_path: String,
+    api_configs: Arc<Mutex<daemon::ApiConfigs>>,
 }
 
 #[tokio::main]
@@ -87,6 +88,11 @@ async fn main() -> Result<()> {
 
     // initialise default shared var daemon state
     let daemon_state = Arc::new(Mutex::new(DaemonState::default()));
+    let api_configs = Arc::new(Mutex::new(daemon::ApiConfigs {
+        radarr_config: None,
+        qbit_config: None,
+        tdarr_config: None,
+    }));
 
     // host on *arr style addr
     let addr = "127.0.0.1:2323".to_string();
@@ -99,6 +105,7 @@ async fn main() -> Result<()> {
         settings: settings.clone(),
         daemon_state: daemon_state.clone(),
         config_path: config_path.clone(),
+        api_configs: api_configs.clone(),
     });
 
     // await both the webserver and the daemon
@@ -107,7 +114,7 @@ async fn main() -> Result<()> {
             axum::serve(listener, app).await.unwrap();
         },
         async {
-            daemon::main(settings.clone(), daemon_state.clone()).await;
+            daemon::main(settings.clone(), daemon_state.clone(), api_configs.clone()).await;
         }
     );
 
@@ -143,13 +150,17 @@ async fn websocket_upgrade(
     let settings = state.settings;
     let daemon_state = state.daemon_state;
     let config_path = state.config_path;
-    ws.on_upgrade(move |socket| handle_connection(socket, settings, daemon_state, config_path))
+    let api_configs = state.api_configs;
+    ws.on_upgrade(move |socket| {
+        handle_connection(socket, settings, daemon_state, api_configs, config_path)
+    })
 }
 
 async fn handle_connection(
     stream: WebSocket,
     settings: Arc<Mutex<Settings>>,
     daemon_state: Arc<Mutex<DaemonState>>,
+    api_configs: Arc<Mutex<daemon::ApiConfigs>>,
     config_path: String,
 ) {
     let (mut sender, mut receiver) = stream.split();
@@ -183,6 +194,7 @@ async fn handle_connection(
                                 updated_settings,
                                 settings.clone(),
                                 daemon_state.clone(),
+                                api_configs.clone(),
                             )
                             .await
                             {
@@ -210,9 +222,6 @@ async fn handle_connection(
     };
     let server_loop = async {
         loop {
-            let radarr_addr = settings.lock().unwrap().radarr_addr.clone();
-            let radarr_api_key = settings.lock().unwrap().radarr_api_key.clone();
-            daemon::connect_radarr(radarr_addr, radarr_api_key, daemon_state.clone()).await;
             if let Err(e) = send_message(
                 &mut sender,
                 InternalMessage {
@@ -238,6 +247,7 @@ async fn update_settings(
     updated_settings: Settings,
     settings: Arc<Mutex<Settings>>,
     daemon_state: Arc<Mutex<DaemonState>>,
+    api_configs: Arc<Mutex<daemon::ApiConfigs>>,
 ) -> Result<()> {
     println!(
         "Received settings update from client: {:?}",
@@ -257,13 +267,6 @@ async fn update_settings(
 
     println!("Updated settings saved to {}", config_path);
 
-    //TODO: will need to retry connections to tdarr/qbit here
-    daemon::connect_radarr(
-        updated_settings.radarr_addr.clone(),
-        updated_settings.radarr_api_key.clone(),
-        daemon_state.clone(),
-    )
-    .await;
     Ok(())
 }
 
