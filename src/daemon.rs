@@ -89,30 +89,23 @@ async fn get_api_configs(
     Ok((radarr_config, tdarr_config, qbit_config))
 }
 
-async fn daemon_update(
-    settings: Arc<Mutex<Settings>>,
-    api_configs: Arc<Mutex<ApiConfigs>>,
-    state: Arc<Mutex<DaemonState>>,
-) -> Result<()> {
-    //make sure we have all the api configs we need
-    let settings = settings.lock().unwrap().clone();
-    let (radarr_config, tdarr_config, mut qbit_config) =
-        get_api_configs(settings, api_configs.clone(), state.clone()).await?;
-    let grabbed_torrents = radarr::history_api::api_v3_history_since_get(
-        &radarr_config,
-        None,
-        Some(radarr_api::models::MovieHistoryEventType::Grabbed),
-        Some(true),
-    )
-    .await?;
-    let radarr_root_folder = radarr::root_folder_api::api_v3_rootfolder_get(&radarr_config).await?
+async fn get_radarr_root_folder(
+    radarr_config: &radarr::configuration::Configuration,
+) -> Result<String> {
+    let radarr_root_folder = radarr::root_folder_api::api_v3_rootfolder_get(radarr_config).await?
         [0]
     .path
     .clone()
     .context("Could not get root folder path from Radarr")?
     .context("Could not get root folder path from Radarr")?;
+    Ok(radarr_root_folder)
+}
+
+async fn get_tdarr_root_folder(
+    tdarr_config: &tdarr::configuration::Configuration,
+) -> Result<String> {
     let tdarr_root_folder = tdarr::default_api::api_v2_cruddb_post(
-        &tdarr_config,
+        tdarr_config,
         Some(tdarr_api::models::ApiV2CruddbPostRequest {
             data: Box::new(tdarr_api::models::ApiV2CruddbPostRequestData {
                 collection: tdarr_api::models::_api_v2_cruddb_post_request_data::Collection::LibrarySettingsJsondb,
@@ -127,6 +120,27 @@ async fn daemon_update(
         .context("Could not get Tdarr root folder")?
         .as_str()
         .context("Could not get Tdarr root folder")?.to_string();
+    Ok(tdarr_root_folder)
+}
+
+async fn daemon_update(
+    settings: Arc<Mutex<Settings>>,
+    api_configs: Arc<Mutex<ApiConfigs>>,
+    state: Arc<Mutex<DaemonState>>,
+) -> Result<()> {
+    //make sure we have all the api configs we need
+    let settings = settings.lock().unwrap().clone();
+    let (radarr_config, tdarr_config, mut qbit_config) =
+        get_api_configs(settings, api_configs.clone(), state.clone()).await?;
+    let radarr_root_folder = get_radarr_root_folder(&radarr_config).await?;
+    let tdarr_root_folder = get_tdarr_root_folder(&tdarr_config).await?;
+    let grabbed_torrents = radarr::history_api::api_v3_history_since_get(
+        &radarr_config,
+        None,
+        Some(radarr_api::models::MovieHistoryEventType::Grabbed),
+        Some(true),
+    )
+    .await?;
     //loop through all the grabbed torrents in radarr's history
     for torrent in grabbed_torrents {
         //this is an internal id
