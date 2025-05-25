@@ -22,14 +22,14 @@ macro_rules! settings_controls {
     ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
         #[derive(Clone)]
         pub struct SettingsControls {
-            $(pub $field: RwSignal<String>,)*
+            $(pub $field: ArcRwSignal<String>,)*
         }
 
         impl SettingsControls {
-            pub fn new() -> Arc<Self> {
-                Arc::new(Self {
-                    $($field: RwSignal::new($default),)*
-                })
+            pub fn new() -> Self {
+                Self {
+                    $($field: ArcRwSignal::new($default),)*
+                }
             }
         }
     };
@@ -91,7 +91,7 @@ pub fn App() -> impl IntoView {
                 </th>
                 <th>
                     <p>
-                        <input type="text" bind:value=settings_controls.$field />
+                        <input type="text" bind:value=RwSignal::from(settings_controls.clone().$field) />
                     </p>
                 </th>
             </tr>)*
@@ -162,8 +162,8 @@ fn send_to_daemon(payload: &impl Serialize, client: &EventClient) -> Result<()> 
 fn connect_to_daemon_impl(
     addr: &str,
     connected: RwSignal<bool>,
-    settings_controls: Arc<SettingsControls>,
-    daemon_state_controls: Arc<DaemonStateControls>,
+    settings_controls: SettingsControls,
+    daemon_state_controls: DaemonStateControls,
 ) -> EventClient {
     log!("Creating connection with daemon");
     let mut client = wasm_sockets::EventClient::new(addr).unwrap();
@@ -195,8 +195,8 @@ fn connect_to_daemon_impl(
 fn handle_message(
     client: &EventClient,
     msg: &Message,
-    settings_controls: Arc<SettingsControls>,
-    daemon_state_controls: Arc<DaemonStateControls>,
+    settings_controls: SettingsControls,
+    daemon_state_controls: DaemonStateControls,
 ) -> Result<()> {
     // server should never send us a binary message
     let msg_string = match msg {
@@ -224,7 +224,7 @@ fn handle_message(
     Ok(())
 }
 
-fn update_settings(settings: Settings, settings_controls: Arc<SettingsControls>) -> Result<()> {
+fn update_settings(settings: Settings, settings_controls: SettingsControls) -> Result<()> {
     // use the settings fields macro to set all settings_controls with the received payload
     macro_rules! update_settings_fields {
         ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
