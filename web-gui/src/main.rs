@@ -109,6 +109,7 @@ pub fn App() -> impl IntoView {
             false => "Disconnected",
         })}</p>
         // list of settings and input fields
+        <h2>Settings</h2>
         <table>
             { settings_fields!(settings_gui_element) }
         </table>
