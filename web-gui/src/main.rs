@@ -8,6 +8,7 @@ use pidarr_shared::{
 use serde::Serialize;
 use serde_json::json;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_sockets::{self, EventClient, Message};
 
@@ -167,6 +168,7 @@ pub fn App() -> impl IntoView {
             log!("Retrying connection to daemon...");
             connect_to_daemon();
         }>Retry Connection</button>
+        {torrent_table(daemon_state_controls.clone())}
     }
 }
 
@@ -174,6 +176,45 @@ fn send_to_daemon(payload: &impl Serialize, client: &EventClient) -> Result<()> 
     match client.send_string(&serde_json::to_string(&payload)?) {
         Ok(_) => Ok(()),
         Err(e) => Err(anyhow!("Failed to send message to daemon: {:?}", e)),
+    }
+}
+
+fn torrent_table(daemon_state_controls: DaemonStateControls) -> impl IntoView {
+    view! {
+        <h2>Media</h2>
+        <table>
+        <tr>
+            <td><b>Title</b></td>
+            <td><b>Status</b></td>
+            <td><b>Download Progress</b></td>
+            <td><b>Transcode Progress</b></td>
+        </tr>
+        <For
+            each=move || daemon_state_controls.media.get()
+            key=|item| item.0.clone()
+
+            children=move |(_, media)| {
+                view! {
+                    <tr>
+                        <td>{let media = media.clone();
+                        move || media.get().title}</td>
+                        <td>{let media = media.clone();
+                            move || media.get().status.to_string()
+                        }</td>
+                        <td><progress value={let media = media.clone();
+                            move || match media.get().download_progress {
+                            Some(p) => p,
+                            None => 0.0,
+                        }} max=100></progress></td>
+                        <td><progress value={move || match media.get().transcode_progress {
+                            Some(p) => p,
+                            None => 0.0,
+                        }} max=100></progress></td>
+                    </tr>
+                }
+            }
+        />
+        </table>
     }
 }
 
