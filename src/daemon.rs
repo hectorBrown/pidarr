@@ -1,4 +1,5 @@
 use pidarr_shared::{ConnectionState, DaemonState, Settings};
+use qbittorrent_rust::{api_fns as qbit, core::api::QbitApi};
 use radarr_api::apis as radarr;
 use std::sync::{Arc, Mutex};
 use tdarr_api::apis as tdarr;

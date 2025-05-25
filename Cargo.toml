@@ -20,3 +20,4 @@ axum = { version = "0.8.4", features = ["ws"] }
 tower-http = { version = "0.6.4", features = ["fs"] }
 radarr-api = { path = "./extern/radarr-api/" }
 tdarr-api = { path = "./extern/tdarr-api/" }
+qbittorrent_rust = "0.1.3"
