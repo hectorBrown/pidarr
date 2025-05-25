@@ -73,16 +73,10 @@ async fn daemon_update(
         }
     }
 
+    //grab all hashes that are in qbittorrent
+    let hashes = get_qbit_torrent_hashes(&mut qbit_config).await?;
     // for each item of media
     let media = state.lock().unwrap().media.clone();
-    //grab all hashes that are in qbittorrent
-    let hashes: HashMap<String, qbit::torrents::info::TorrentHash> = qbit_config
-        .torrents_get_hashes()
-        .await
-        .map_err(|e| anyhow!("{}", e))?
-        .into_iter()
-        .map(|hash| (hash.hash.clone().to_uppercase(), hash))
-        .collect();
     for (id, item) in media {
         // match radarr's download_id with the hashes in qBittorrent
         let hash = hashes
@@ -184,6 +178,19 @@ async fn daemon_update(
     }
 
     Ok(())
+}
+
+async fn get_qbit_torrent_hashes(
+    qbit_config: &mut QbitApi,
+) -> Result<HashMap<String, qbit::torrents::info::TorrentHash>> {
+    let hashes: HashMap<String, qbit::torrents::info::TorrentHash> = qbit_config
+        .torrents_get_hashes()
+        .await
+        .map_err(|e| anyhow!("{}", e))?
+        .into_iter()
+        .map(|hash| (hash.hash.clone().to_uppercase(), hash))
+        .collect();
+    Ok(hashes)
 }
 
 async fn get_api_configs(
