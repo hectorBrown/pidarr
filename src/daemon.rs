@@ -222,49 +222,49 @@ async fn daemon_update(
             );
             state.lock().unwrap().media.insert(item.path, media);
         }
+    }
 
-        // for each item of media
-        let media = state.lock().unwrap().media.clone();
-        //grab all hashes that are in qbittorrent
-        let hashes: HashMap<String, qbit::torrents::info::TorrentHash> = qbit_config
-            .torrents_get_hashes()
+    // for each item of media
+    let media = state.lock().unwrap().media.clone();
+    //grab all hashes that are in qbittorrent
+    let hashes: HashMap<String, qbit::torrents::info::TorrentHash> = qbit_config
+        .torrents_get_hashes()
+        .await
+        .map_err(|e| anyhow!("{}", e))?
+        .into_iter()
+        .map(|hash| (hash.hash.clone().to_uppercase(), hash))
+        .collect();
+    for (id, item) in media {
+        // match radarr's download_id with the hashes in qBittorrent
+        let hash = hashes
+            .get(&item.download_id)
+            .context(format!("Could not find torrent hash for item {:?}", &item))?;
+        let props_value = qbit_config
+            .torrents_get_torrent_generic_properties(hash)
             .await
-            .map_err(|e| anyhow!("{}", e))?
-            .into_iter()
-            .map(|hash| (hash.hash.clone().to_uppercase(), hash))
-            .collect();
-        for (id, item) in media {
-            // match radarr's download_id with the hashes in qBittorrent
-            let hash = hashes
-                .get(&item.download_id)
-                .context(format!("Could not find torrent hash for item {:?}", &item))?;
-            let props_value = qbit_config
-                .torrents_get_torrent_generic_properties(hash)
-                .await
-                .map_err(|e| anyhow!("{}", e))?;
-            let props = props_value.as_object().context(format!(
-                "Could not get torrent properties for item {:?}",
-                &item
-            ))?;
-            let progress = props
-                .get("progress")
-                .context(format!("Could not get progress for item {:?}", &item))?
-                .as_f64()
-                .context(format!("Could not get progress for item {:?}", &item))?
-                * 100.0;
-            let mut state = state.lock().unwrap();
-            let media = state
-                .media
-                .get_mut(&id)
-                .context(format!("Could not get media object for item {:?}", &item))?;
-            //update download progress for each torrent
-            media.download_progress = Some(progress);
-            if progress < 100.0 {
-                media.status = MediaStatus::Downloading;
-            } else if progress == 100.0 {
-                //TODO: extra logic for if transcoding is finished
-                media.status = MediaStatus::Transcoding;
-            }
+            .map_err(|e| anyhow!("{}", e))?;
+        let props = props_value.as_object().context(format!(
+            "Could not get torrent properties for item {:?}",
+            &item
+        ))?;
+        let progress = props
+            .get("progress")
+            .context(format!("Could not get progress for item {:?}", &item))?
+            .as_f64()
+            .context(format!("Could not get progress for item {:?}", &item))?
+            * 100.0;
+        let mut state = state.lock().unwrap();
+        let media = state
+            .media
+            .get_mut(&id)
+            .context(format!("Could not get media object for item {:?}", &item))?;
+        //update download progress for each torrent
+        media.download_progress = Some(progress);
+        if progress < 100.0 {
+            media.status = MediaStatus::Downloading;
+        } else if progress == 100.0 {
+            //TODO: extra logic for if transcoding is finished
+            media.status = MediaStatus::Transcoding;
         }
     }
     //tdarr there are media in the queue, and associated with nodes
