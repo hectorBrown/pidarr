@@ -3,8 +3,7 @@ use leptos::logging::{error, log};
 use leptos::mount::mount_to_body;
 use leptos::prelude::*;
 use pidarr_shared::{
-    ConnectionState, DaemonState, InternalMessage, MessageType, Settings, daemon_state_fields,
-    settings_fields,
+    ConnectionState, DaemonState, InternalMessage, Media, MessageType, Settings, settings_fields,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -35,24 +34,24 @@ macro_rules! settings_controls {
         }
     };
 }
-macro_rules! daemon_state_controls {
-    ( $( $field:ident : ( $type:ident ) : ( $default:expr ) : ( $desc:expr ) ),* ) => {
-        #[derive(Clone)]
-        pub struct DaemonStateControls {
-            $(pub $field: RwSignal<$type>,)*
+#[derive(Clone)]
+pub struct DaemonStateControls {
+    pub radarr_connected: ArcRwSignal<ConnectionState>,
+    pub qbit_connected: ArcRwSignal<ConnectionState>,
+    pub tdarr_connected: ArcRwSignal<ConnectionState>,
+    pub media: ArcRwSignal<HashMap<String, ArcRwSignal<Media>>>,
+}
+impl DaemonStateControls {
+    pub fn new() -> Self {
+        Self {
+            radarr_connected: ArcRwSignal::new(ConnectionState::Unknown),
+            qbit_connected: ArcRwSignal::new(ConnectionState::Unknown),
+            tdarr_connected: ArcRwSignal::new(ConnectionState::Unknown),
+            media: ArcRwSignal::new(HashMap::new()),
         }
-
-        impl DaemonStateControls {
-            pub fn new() -> Arc<Self> {
-                Arc::new(Self {
-                    $($field: RwSignal::new($default),)*
-                })
-            }
-        }
-    };
+    }
 }
 settings_fields!(settings_controls);
-daemon_state_fields!(daemon_state_controls);
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -239,14 +238,32 @@ fn update_settings(settings: Settings, settings_controls: Arc<SettingsControls>)
 
 fn update_daemon_state(
     state: DaemonState,
-    daemon_state_controls: Arc<DaemonStateControls>,
+    daemon_state_controls: DaemonStateControls,
 ) -> Result<()> {
-    macro_rules! update_daemon_state_fields {
-        ( $( $field:ident : ( $type:ident ) : ( $default:expr ) : ( $desc:expr ) ),* ) => {
-            $( daemon_state_controls.$field.set(state.$field); )*
+    daemon_state_controls
+        .qbit_connected
+        .set(state.qbit_connected);
+    daemon_state_controls
+        .radarr_connected
+        .set(state.radarr_connected);
+    daemon_state_controls
+        .tdarr_connected
+        .set(state.tdarr_connected);
+    for (i, item) in state.media.iter() {
+        if daemon_state_controls
+            .media
+            .get_untracked()
+            .contains_key(i.as_str())
+        {
+            daemon_state_controls
+                .media
+                .update(|m| m.get_mut(i).unwrap().set(item.clone()));
+        } else {
+            daemon_state_controls.media.update(|m| {
+                m.insert(i.clone(), ArcRwSignal::new(item.clone()));
+            });
         }
     }
-    daemon_state_fields!(update_daemon_state_fields);
 
     Ok(())
 }
