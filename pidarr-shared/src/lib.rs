@@ -62,9 +62,11 @@ macro_rules! settings_fields {
         $macro! {
             radarr_addr:("http://localhost:7878".to_string()):("Radarr address"),
             radarr_api_key:("".to_string()):("Radarr API key"),
+            radarr_output:("/radarr".to_string()):("Radarr output path"),
             qbit_addr:("http://localhost:8080".to_string()):("qBittorrent address"),
             tdarr_addr:("http://localhost:8265".to_string()):("Tdarr address"),
-            jellyfin_media_location:("".to_string()):("Jellyfin media path")
+            tdarr_output:("/tdarr".to_string()):("Tdarr output path"),
+            jellyfin_input:("/jellyfin".to_string()):("Jellyfin media path")
         }
     };
 }
