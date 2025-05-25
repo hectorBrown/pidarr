@@ -105,7 +105,7 @@ pub fn App() -> impl IntoView {
                 let daemon_state_controls = daemon_state_controls.clone();
                 move || {
                 format!(" {}", if connected.get() {
-                    match daemon_state_controls.radarr_connected.get() {
+                    match daemon_state_controls.$field.get() {
                         ConnectionState::Connected => "Connected",
                         ConnectionState::Disconnected => "Disconnected",
                         ConnectionState::Unauthorized => "Unauthorized",
