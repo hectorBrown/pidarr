@@ -146,21 +146,23 @@ async fn get_tdarr_all_workers(
         .await
         .context("Failed to get Tdarr nodes")?;
     for (_, node) in tdarr_nodes {
+        let workers_err_message = "Failed to get Tdarr workers";
         let workers = node
             .as_object()
-            .context("Failed to get Tdarr workers")?
+            .context(workers_err_message)?
             .get("workers")
-            .context("Failed to get Tdarr workers")?
+            .context(workers_err_message)?
             .as_object()
-            .context("Failed to get Tdarr workers")?;
+            .context(workers_err_message)?;
         for (_, worker) in workers {
             //TODO:: is there logic here in case a worker isn't processing anything?
+            let worker_file_err_message = "Failed to get Tdarr worker file";
             let path_buf = Path::new(
                 &worker
                     .get("file")
-                    .context("Failed to get Tdarr worker file")?
+                    .context(worker_file_err_message)?
                     .as_str()
-                    .context("Failed to get Tdarr worker file")?[tdarr_root_folder.len()..],
+                    .context(worker_file_err_message)?[tdarr_root_folder.len()..],
             )
             .with_extension("");
             let path = path_buf.to_str().unwrap();
@@ -168,11 +170,12 @@ async fn get_tdarr_all_workers(
             // that is one character shorter -- if any torrents differ by only 1 character, i guess
             // you bring it on yourself... still makes me deeply unhappy
             let path = path[..path.len() - 1].to_string();
+            let worker_progress_err_message = "Failed to get Tdarr worker progress";
             let progress = worker
                 .get("percentage")
-                .context("Failed to get Tdarr worker progress")?
+                .context(worker_progress_err_message)?
                 .as_f64()
-                .context("Failed to get Tdarr worker progress")?;
+                .context(worker_progress_err_message)?;
             res.push(TdarrWorker { path, progress });
         }
     }
@@ -196,30 +199,20 @@ async fn get_qbit_torrent_props(
         "Could not get torrent properties for item with hash {:?}",
         hash
     ))?;
+    let progress_err_message = format!("Could not get progress for item with hash {:?}", hash);
     let progress = props
         .get("progress")
-        .context(format!(
-            "Could not get progress for item with hash {:?}",
-            hash
-        ))?
+        .context(progress_err_message.clone())?
         .as_f64()
-        .context(format!(
-            "Could not get progress for item with hash {:?}",
-            hash
-        ))?
+        .context(progress_err_message)?
         * 100.0;
+    let seeding_ratio_err_message =
+        format!("Could not get seeding ratio for item with hash {:?}", hash);
     let seeding_ratio = props
         .get("share_ratio")
-        .context(format!(
-            "Could not get progress for item with hash {:?}",
-            hash
-        ))?
+        .context(seeding_ratio_err_message.clone())?
         .as_f64()
-        .context(format!(
-            "Could not get progress for item with hash {:?}",
-            hash
-        ))?
-        * 100.0;
+        .context(seeding_ratio_err_message)?;
     Ok(QbitTorrentProps {
         progress,
         seeding_ratio,
@@ -292,18 +285,20 @@ async fn get_api_configs(
 async fn get_radarr_root_folder(
     radarr_config: &radarr::configuration::Configuration,
 ) -> Result<String> {
+    let radarr_root_folder_err_message = "Could not get root folder path from Radarr";
     let radarr_root_folder = radarr::root_folder_api::api_v3_rootfolder_get(radarr_config).await?
         [0]
     .path
     .clone()
-    .context("Could not get root folder path from Radarr")?
-    .context("Could not get root folder path from Radarr")?;
+    .context(radarr_root_folder_err_message)?
+    .context(radarr_root_folder_err_message)?;
     Ok(radarr_root_folder)
 }
 
 async fn get_tdarr_root_folder(
     tdarr_config: &tdarr::configuration::Configuration,
 ) -> Result<String> {
+    let tdarr_root_folder_err_message = "Could not get Tdarr root folder";
     let tdarr_root_folder = tdarr::default_api::api_v2_cruddb_post(
         tdarr_config,
         Some(tdarr_api::models::ApiV2CruddbPostRequest {
@@ -315,11 +310,11 @@ async fn get_tdarr_root_folder(
             }),
         }),
     )
-    .await?.as_array().context("Could not get Tdarr root folder")?[0].as_object().context("Could not get Tdarr root folder")?
+    .await?.as_array().context(tdarr_root_folder_err_message)?[0].as_object().context(tdarr_root_folder_err_message)?
         .get("folder")
-        .context("Could not get Tdarr root folder")?
+        .context(tdarr_root_folder_err_message)?
         .as_str()
-        .context("Could not get Tdarr root folder")?.to_string();
+        .context(tdarr_root_folder_err_message)?.to_string();
     Ok(tdarr_root_folder)
 }
 
@@ -346,40 +341,38 @@ async fn get_radarr_grabbed_media(
             .movie
             .as_ref()
             .context(format!("No movie found in resource {:?}", &torrent))?;
+        let movie_path_err_message = format!("No movie path found in resource {:?}", &torrent);
         let parent_path = movie
             .path
             .as_ref()
-            .context(format!("No movie path found in resource {:?}", &torrent))?
+            .context(movie_path_err_message.clone())?
             .as_ref()
-            .context(format!("No movie path found in resource {:?}", &torrent))?
-            [radarr_root_folder.len()..]
+            .context(movie_path_err_message)?[radarr_root_folder.len()..]
             .to_string();
+        let filename_err_message = format!("No source title found in resource {:?}", &torrent);
         let filename = torrent
             .source_title
             .as_ref()
-            .context(format!("No source title found in resource {:?}", &torrent))?
+            .context(filename_err_message.clone())?
             .as_ref()
-            .context(format!("No source title found in resource {:?}", &torrent))?;
+            .context(filename_err_message)?;
         let path = [parent_path, filename.to_string()].join("/");
+        let title_err_message = format!("No title found in resource {:?}", &torrent);
         let title = movie
             .title
             .as_ref()
-            .context(format!("No title found in resource {:?}", &torrent))?
+            .context(title_err_message.clone())?
             .as_ref()
-            .context(format!("No title found in resource {:?}", &torrent))?
+            .context(title_err_message)?
             .clone();
+        let download_id_err_message =
+            format!("Failed to get download id in resource {:?}", &torrent);
         let download_id = torrent
             .download_id
             .as_ref()
-            .context(format!(
-                "Failed to get download id in resource {:?}",
-                &torrent
-            ))?
+            .context(download_id_err_message.clone())?
             .as_ref()
-            .context(format!(
-                "Failed to get download id in resource {:?}",
-                &torrent
-            ))?
+            .context(download_id_err_message)?
             .clone();
         res.push(GrabbedMediaResource {
             path,
