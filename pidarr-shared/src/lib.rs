@@ -17,6 +17,7 @@ pub struct Media {
     pub title: String,
     pub download_id: String,
     pub download_progress: Option<f64>,
+    pub seeding_ratio: Option<f64>,
     pub transcode_progress: Option<f64>,
     pub status: MediaStatus,
 }
@@ -60,13 +61,14 @@ pub struct InternalMessage {
 macro_rules! settings_fields {
     ($macro:ident) => {
         $macro! {
-            radarr_addr:("http://localhost:7878".to_string()):("Radarr address"),
-            radarr_api_key:("".to_string()):("Radarr API key"),
-            radarr_output:("/radarr".to_string()):("Radarr output path"),
-            qbit_addr:("http://localhost:8080".to_string()):("qBittorrent address"),
-            tdarr_addr:("http://localhost:8265".to_string()):("Tdarr address"),
-            tdarr_output:("/tdarr".to_string()):("Tdarr output path"),
-            jellyfin_input:("/jellyfin".to_string()):("Jellyfin media path")
+            radarr_addr:("http://localhost:7878".to_string()):(String):("Radarr address"),
+            radarr_api_key:("".to_string()):(String):("Radarr API key"),
+            radarr_output:("/radarr".to_string()):(String):("Radarr output path"),
+            qbit_addr:("http://localhost:8080".to_string()):(String):("qBittorrent address"),
+            tdarr_addr:("http://localhost:8265".to_string()):(String):("Tdarr address"),
+            tdarr_output:("/tdarr".to_string()):(String):("Tdarr output path"),
+            jellyfin_input:("/jellyfin".to_string()):(String):("Jellyfin media path"),
+            target_seeding_ratio:(2.0):(f64):("Target seeing ratio")
         }
     };
 }
@@ -84,10 +86,10 @@ macro_rules! daemon_state_fields {
 }
 
 macro_rules! define_settings_struct {
-    ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
+    ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {
         #[derive(Clone, Deserialize, Debug, Serialize)]
         pub struct Settings {
-            $( pub $field: String, )*
+            $( pub $field: $type, )*
         }
     }
 }
@@ -105,7 +107,7 @@ settings_fields!(define_settings_struct);
 daemon_state_fields!(define_daemon_state_struct);
 
 macro_rules! define_settings_default {
-    ( $( $field:ident : ( $default:expr ) : ( $desc:expr )),* ) => {
+    ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr )),* ) => {
         impl Default for Settings {
             fn default() -> Self {
                 Self {

@@ -20,7 +20,7 @@ fn main() {
 // defines a struct that contains the settings controls -- i.e. the leptos RwSignals that are bound
 // to the gui elements, initialises with the shared defaults
 macro_rules! settings_controls {
-    ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
+    ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {
         #[derive(Clone)]
         pub struct SettingsControls {
             $(pub $field: ArcRwSignal<String>,)*
@@ -29,7 +29,7 @@ macro_rules! settings_controls {
         impl SettingsControls {
             pub fn new() -> Self {
                 Self {
-                    $($field: ArcRwSignal::new($default),)*
+                    $($field: ArcRwSignal::new($default.to_string()),)*
                 }
             }
         }
@@ -85,7 +85,7 @@ pub fn App() -> impl IntoView {
 
     //this defines the gui element that handles each settings field in HTML
     macro_rules! settings_gui_element {
-        ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => { view! {
+        ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => { view! {
             $(<tr>
                 <th>
                     <p>$desc:</p>
@@ -143,9 +143,17 @@ pub fn App() -> impl IntoView {
             // defines a payload which is just a pidarr_shared setting struct with the data from
             // settings_controls
             macro_rules! settings_payload {
-                ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
-                    Settings {
-                        $( $field: settings_controls.$field.get().to_string(), )*
+                ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {
+                    {
+                        $(
+                            let mut $field: $type;
+                            //TODO: this should result in some kind of error if the parse fails to
+                            //notify
+                            $field = settings_controls.$field.get().parse::<$type>().unwrap_or($default);
+                        )*
+                        Settings {
+                            $( $field, )*
+                        }
                     }
                 }
             }
@@ -286,8 +294,10 @@ fn handle_message(
 fn update_settings(settings: Settings, settings_controls: SettingsControls) -> Result<()> {
     // use the settings fields macro to set all settings_controls with the received payload
     macro_rules! update_settings_fields {
-        ( $( $field:ident : ( $default:expr ) : ( $desc:expr ) ),* ) => {
-            $( settings_controls.$field.set(settings.$field); )*
+        ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {
+            $(
+                settings_controls.$field.set(settings.$field.to_string());
+            )*
         }
     }
     settings_fields!(update_settings_fields);

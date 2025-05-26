@@ -67,6 +67,7 @@ async fn daemon_update(
                 title: item.title.clone(),
                 download_id: item.download_id,
                 download_progress: None,
+                seeding_ratio: None,
                 transcode_progress: None,
                 status: MediaStatus::Unknown,
             };
@@ -100,6 +101,7 @@ async fn daemon_update(
             .context(format!("Could not get media object for item {:?}", &item))?;
         //update download progress for each torrent
         media.download_progress = Some(progress);
+        media.seeding_ratio = Some(props.seeding_ratio);
         if progress < 100.0 {
             media.status = MediaStatus::Downloading;
         } else if progress == 100.0 {
