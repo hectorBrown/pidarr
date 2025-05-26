@@ -125,10 +125,9 @@ async fn daemon_update(
         ))?;
         //update transcode progress for each torrent
         media.transcode_progress = Some(worker.progress);
-        if worker.progress == 100.0 {
-            media.status = MediaStatus::Completed;
-        }
     }
+
+    //TODO: check if file exists in tdarr output, if it does, check seeing ratio compared to target
 
     Ok(())
 }
