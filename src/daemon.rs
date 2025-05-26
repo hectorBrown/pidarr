@@ -181,6 +181,7 @@ async fn get_tdarr_all_workers(
 
 struct QbitTorrentProps {
     progress: f64,
+    seeding_ratio: f64,
 }
 
 async fn get_qbit_torrent_props(
@@ -207,7 +208,22 @@ async fn get_qbit_torrent_props(
             hash
         ))?
         * 100.0;
-    Ok(QbitTorrentProps { progress })
+    let seeding_ratio = props
+        .get("share_ratio")
+        .context(format!(
+            "Could not get progress for item with hash {:?}",
+            hash
+        ))?
+        .as_f64()
+        .context(format!(
+            "Could not get progress for item with hash {:?}",
+            hash
+        ))?
+        * 100.0;
+    Ok(QbitTorrentProps {
+        progress,
+        seeding_ratio,
+    })
 }
 
 async fn get_qbit_torrent_hashes(
