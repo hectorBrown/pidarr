@@ -152,9 +152,7 @@ async fn websocket_upgrade(
     let settings = state.settings;
     let daemon_state = state.daemon_state;
     let config_path = state.config_path;
-    ws.on_upgrade(move |socket| {
-        handle_connection(socket, settings, daemon_state, config_path)
-    })
+    ws.on_upgrade(move |socket| handle_connection(socket, settings, daemon_state, config_path))
 }
 
 async fn handle_connection(
