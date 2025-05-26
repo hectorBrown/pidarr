@@ -5,6 +5,7 @@ use axum::{
     extract::State,
     extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade},
     response::IntoResponse,
+    routing::get_service,
 };
 use config::Config;
 use futures_util::{
@@ -124,6 +125,7 @@ async fn main() -> Result<()> {
 fn build_router() -> Router<AppState> {
     //router serves leptos wasm (from web-gui) on the root, and accepts websocketupgrade on /ws
     Router::new()
+        .fallback_service(get_service(ServeDir::new("./web-gui/dist")))
         .route("/ws", axum::routing::get(websocket_upgrade))
         .fallback_service(axum::routing::get_service(ServeDir::new("web-gui/dist")))
 }
