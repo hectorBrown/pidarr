@@ -31,7 +31,6 @@ struct AppState {
     settings: Arc<Mutex<Settings>>,
     daemon_state: Arc<Mutex<DaemonState>>,
     config_path: String,
-    api_configs: Arc<Mutex<daemon::ApiConfigs>>,
 }
 
 #[tokio::main]
@@ -106,7 +105,6 @@ async fn main() -> Result<()> {
         settings: settings.clone(),
         daemon_state: daemon_state.clone(),
         config_path: config_path.clone(),
-        api_configs: api_configs.clone(),
     });
 
     // await both the webserver and the daemon
