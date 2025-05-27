@@ -9,6 +9,7 @@ use std::{
 };
 use tdarr_api::apis as tdarr;
 use tokio::time::{Duration, sleep};
+use walkdir::WalkDir;
 
 #[derive(Clone)]
 pub struct ApiConfigs {
@@ -127,7 +128,38 @@ async fn daemon_update(
         media.transcode_progress = Some(worker.progress);
     }
 
-    //TODO: check if file exists in tdarr output, if it does, check seeing ratio compared to target
+    let tdarr_output_list = get_tdarr_output_list(settings.tdarr_output)?;
+    let _state = state.lock().unwrap().clone();
+    let media_paths = _state.media.keys();
+    for media_path in media_paths {
+        // if the media item is in the tdarr output list, we update its status
+        for path in &tdarr_output_list {
+            if path.contains(media_path) {
+                //media is in tdarr output
+                let mut state = state.lock().unwrap();
+                let media = state.media.get_mut(media_path).context(format!(
+                    "Could not get media object for item {:?}",
+                    media_path
+                ))?;
+                media.transcode_progress = Some(100.0);
+
+                if media.seeding_ratio.context(format!(
+                    "Could not get seeding ratio for media {:?}",
+                    &media
+                ))? >= settings.target_seeding_ratio
+                {
+                    media.status = MediaStatus::Completed;
+                } else {
+                    media.status = MediaStatus::Seeding;
+                }
+            }
+        }
+    }
+
+    // now act based on status to create and remove softlinks
+    //
+
+    // then remove media where it should be removed
 
     Ok(())
 }
@@ -135,6 +167,20 @@ async fn daemon_update(
 struct TdarrWorker {
     path: String,
     progress: f64,
+}
+
+fn get_tdarr_output_list(tdarr_output: String) -> Result<Vec<String>> {
+    let mut res = Vec::new();
+    for path in WalkDir::new(tdarr_output).into_iter() {
+        let path = path?;
+        res.push(
+            path.path()
+                .to_str()
+                .context("Could not get path from Tdarr output")?
+                .to_string(),
+        );
+    }
+    Ok(res)
 }
 
 async fn get_tdarr_all_workers(
