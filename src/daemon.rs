@@ -2,6 +2,8 @@ use anyhow::{Context, Result, anyhow};
 use pidarr_shared::{ConnectionState, DaemonState, Media, MediaStatus, Settings};
 use qbittorrent_rust::{api_fns as qbit, core::api::QbitApi};
 use radarr_api::apis as radarr;
+use std::fs::{create_dir_all, remove_file};
+use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::{
     collections::HashMap,
@@ -56,34 +58,41 @@ async fn daemon_update(
     let settings = settings.lock().unwrap().clone();
     let (radarr_config, tdarr_config, mut qbit_config) =
         get_api_configs(&settings, api_configs.clone(), state.clone()).await?;
-    let radarr_root_folder = get_radarr_root_folder(&radarr_config).await?;
     let tdarr_root_folder = get_tdarr_root_folder(&tdarr_config).await?;
 
     //
     //RADARR SECTION
     //
 
-    //loop through all the grabbed torrents in radarr's history
-    let radarr_grabbed_media =
-        get_radarr_grabbed_media(&radarr_config, &radarr_root_folder).await?;
-    for item in radarr_grabbed_media {
+    //loop through all the movies radarr knows about
+    let radarr_movies = get_radarr_movies(&radarr_config).await?;
+    let id_download_hash_map = get_radarr_grabbed_media(&radarr_config).await?;
+    for movie in radarr_movies {
         // if the daemon state does not have an entry for this id, we add it
         let mut media = state.lock().unwrap().media.clone();
-        if let std::collections::hash_map::Entry::Vacant(_) = media.entry(item.path.clone()) {
+        if let std::collections::hash_map::Entry::Vacant(_) = media.entry(movie.id) {
             //we insert the media item here, unfinished
             let media = Media {
-                title: item.title.clone(),
-                download_id: item.download_id,
+                title: movie.title.clone(),
+                download_id: id_download_hash_map
+                    .get(&movie.id)
+                    .context(format!(
+                        "Could not get download hash for movie {}",
+                        movie.title
+                    ))?
+                    .to_owned(),
+                radarr_path: movie.path.clone(),
+                tdarr_path: None,
                 download_progress: None,
                 seeding_ratio: None,
                 transcode_progress: None,
                 status: MediaStatus::Unknown,
             };
             println!(
-                "-----------\nFound movie: {} at path {}\n{:?}\n-----------",
-                &item.title, &item.path, &media
+                "-----------\nFound movie: {}\n{:?}\n-----------",
+                &movie.title, &media
             );
-            state.lock().unwrap().media.insert(item.path, media);
+            state.lock().unwrap().media.insert(movie.id, media);
         }
     }
 
@@ -93,97 +102,261 @@ async fn daemon_update(
 
     //grab all hashes that are in qbittorrent
     let hashes = get_qbit_torrent_hashes(&mut qbit_config).await?;
-    // for each item of media
-    let media = state.lock().unwrap().media.clone();
-    for (id, item) in media {
-        // match radarr's download_id with the hashes in qBittorrent
-        let hash = hashes
-            .get(&item.download_id)
-            .context(format!("Could not find torrent hash for item {:?}", &item))?;
-        let props = get_qbit_torrent_props(&mut qbit_config, hash).await?;
-        let progress = props.progress;
-        let mut state = state.lock().unwrap();
-        let media = state
-            .media
-            .get_mut(&id)
-            .context(format!("Could not get media object for item {:?}", &item))?;
-        //update download progress for each torrent
-        media.download_progress = Some(progress);
-        media.seeding_ratio = Some(props.seeding_ratio);
-        if progress < 100.0 {
-            media.status = MediaStatus::Downloading;
-        } else if progress == 100.0 {
-            //TODO: extra logic for if transcoding is finished
-            media.status = MediaStatus::Transcoding;
+    {
+        // for each item of media
+        let media = state.lock().unwrap().media.clone();
+        for (id, media_item) in &media {
+            // match radarr's download_id with the hashes in qBittorrent
+            let hash = hashes.get(&media_item.download_id).context(format!(
+                "Could not find torrent hash for item {:?}",
+                &media_item
+            ))?;
+            let props = get_qbit_torrent_props(&mut qbit_config, hash).await?;
+            let progress = props.progress;
+            let mut state = state.lock().unwrap();
+            let media = state.media.get_mut(id).context(format!(
+                "Could not get media object for item {:?}",
+                &media_item
+            ))?;
+            //update download progress for each torrent
+            media.download_progress = Some(progress);
+            media.seeding_ratio = Some(props.seeding_ratio);
+            if progress < 100.0 {
+                media.status = MediaStatus::Downloading;
+            } else if progress == 100.0 {
+                //TODO: extra logic for if transcoding is finished
+                media.status = MediaStatus::Transcoding;
+            }
         }
     }
 
     //
     // TDARR SECTION
     //
-
-    //tdarr there are media in the queue, and associated with nodes
-    // we have to scan each node -- and then each worker -- and all files
-    let workers = get_tdarr_all_workers(&tdarr_config, &tdarr_root_folder).await?;
-    for worker in workers {
+    {
+        // update transcode progress
+        let workers_map = get_tdarr_all_workers(&tdarr_config, &tdarr_root_folder).await?;
         let mut state = state.lock().unwrap();
-        let media = state.media.get_mut(&worker.path).context(format!(
-            "Could not get media object for item {:?}",
-            &worker.path
-        ))?;
-        //update transcode progress for each torrent
-        media.transcode_progress = Some(worker.progress);
-    }
-
-    let tdarr_output_list = get_tdarr_output_list(settings.tdarr_output)?;
-    let _state = state.lock().unwrap().clone();
-    let media_paths = _state.media.keys();
-    for media_path in media_paths {
-        // if the media item is in the tdarr output list, we update its status
-        for path in &tdarr_output_list {
-            if path.contains(media_path) {
-                //media is in tdarr output
-                let mut state = state.lock().unwrap();
-                let media = state.media.get_mut(media_path).context(format!(
-                    "Could not get media object for item {:?}",
-                    media_path
-                ))?;
-                media.transcode_progress = Some(100.0);
-
-                if media.seeding_ratio.context(format!(
-                    "Could not get seeding ratio for media {:?}",
-                    &media
-                ))? >= settings.target_seeding_ratio
-                {
-                    media.status = MediaStatus::Completed;
-                } else {
-                    media.status = MediaStatus::Seeding;
+        for (id, media_item) in state.media.clone() {
+            if let Some(radarr_path) = media_item.radarr_path.clone() {
+                if let Some(prog) = workers_map.get(&radarr_path) {
+                    state
+                        .media
+                        .get_mut(&id)
+                        .context(format!(
+                            "Could not get media object for item {:?}",
+                            &media_item
+                        ))?
+                        .transcode_progress = Some(*prog);
                 }
             }
         }
     }
 
+    {
+        let mut state = state.lock().unwrap();
+        let tdarr_output_list = get_file_list_in(&settings.tdarr_output)?;
+        for (id, media_item) in state.media.clone() {
+            // if the media item is in the tdarr output list, we update its status
+            if let Some(media_path) = media_item.radarr_path.clone() {
+                for path in &tdarr_output_list {
+                    // if the path contains the media path (extension agnostic)
+                    if path.contains(
+                        &Path::new(&media_path)
+                            .with_extension("")
+                            .to_str()
+                            .context(format!(
+                                "Could not parse media path for item {:?}",
+                                &media_item
+                            ))?
+                            .to_string(),
+                    ) {
+                        //media is in tdarr output
+                        let media = state.media.get_mut(&id).context(format!(
+                            "Could not get media object for item {:?}",
+                            media_path
+                        ))?;
+                        media.tdarr_path = Some(path.to_owned());
+                        media.transcode_progress = Some(100.0);
+
+                        if media.seeding_ratio.context(format!(
+                            "Could not get seeding ratio for media {:?}",
+                            &media
+                        ))? >= settings.target_seeding_ratio
+                        {
+                            media.status = MediaStatus::Completed;
+                        } else {
+                            media.status = MediaStatus::Seeding;
+                        }
+                    }
+                }
+            }
+        }
+    }
     // now act based on status to create and remove softlinks
     //
+    {
+        let state = state.lock().unwrap();
+        let jellyfin_links = get_file_list_in(&settings.jellyfin_input)?;
+        for (_, media_item) in state.media.clone() {
+            let mut found = false;
+            //if we have a radarr path
+            if let Some(radarr_path) = &media_item.radarr_path {
+                for link in &jellyfin_links {
+                    // if the link in jellyfin contains the radarr path (extension agnostic)
+                    if link.contains(
+                        &Path::new(&radarr_path)
+                            .with_extension("")
+                            .to_str()
+                            .context(format!(
+                                "Could not parse media path for item {:?}",
+                                &media_item
+                            ))?
+                            .to_string(),
+                    ) {
+                        found = true;
+                        let target = std::fs::read_link(Path::new(
+                            &[settings.jellyfin_input.to_owned(), link.to_owned()].join(""),
+                        ))?;
+                        // if the link is still to the radarr file and it has finished transcoding --
+                        // replace it
+                        if target.starts_with(&settings.radarr_output)
+                            && matches!(media_item.status, MediaStatus::Seeding)
+                            || matches!(media_item.status, MediaStatus::Completed)
+                        {
+                            println!("Relinking media item {:?} to Tdarr", &media_item);
+                            remove_file(link)?;
+                            let tdarr_path = media_item
+                                .tdarr_path
+                                .clone()
+                                .context(format!(
+                                    "There is no assigned Tdarr path for item {:?}",
+                                    media_item
+                                ))?
+                                .clone();
+                            let original =
+                                [settings.tdarr_output.to_owned(), tdarr_path.to_owned()].join("");
+                            let link = [settings.jellyfin_input.to_owned(), tdarr_path.to_owned()]
+                                .join("/");
+                            symlink(original, link)?;
+                        }
+                    }
+                }
+
+                //if the symlink doesn't already exist
+                if !found {
+                    println!("Link doesn't exist");
+                    if matches!(media_item.status, MediaStatus::Seeding)
+                        || matches!(media_item.status, MediaStatus::Completed)
+                    {
+                        // if the media is finished, we create a symlink to the tdarr output
+                        let tdarr_path = media_item.tdarr_path.clone().context(format!(
+                            "There is no assigned Tdarr path for item {:?}",
+                            media_item,
+                        ))?;
+                        let original =
+                            [settings.tdarr_output.to_owned(), tdarr_path.to_owned()].join("");
+                        let link =
+                            [settings.jellyfin_input.to_owned(), tdarr_path.to_owned()].join("");
+
+                        println!("Linking media item {:?} to Tdarr", &media_item);
+
+                        create_dir_all(Path::new(&link).parent().context(format!(
+                            "Could not get parent directory for link target {}",
+                            &link
+                        ))?)?;
+
+                        symlink(original, link)?;
+                    } else if matches!(media_item.status, MediaStatus::Transcoding) {
+                        // if the media is still transcoding, we create a symlink to the radarr output
+                        let original =
+                            [settings.radarr_output.to_owned(), radarr_path.to_owned()].join("");
+                        let link =
+                            [settings.jellyfin_input.to_owned(), radarr_path.to_owned()].join("");
+
+                        println!("Linking media item {:?} to Tdarr", &media_item);
+
+                        create_dir_all(Path::new(&link).parent().context(format!(
+                            "Could not get parent directory for link target {}",
+                            &link
+                        ))?)?;
+
+                        symlink(original, link)?;
+                    }
+                }
+            }
+        }
+    }
 
     // then remove media where it should be removed
 
     Ok(())
 }
 
-struct TdarrWorker {
-    path: String,
-    progress: f64,
+struct RadarrMovieResource {
+    id: i32,
+    //this is a full path as it appears to radarr without prefix -- e.g.
+    // /The Dark Knight (2008)/The.Dark.Knight.2008.1080p.BluRay.x264.DTS-HD.MA.5.1-RARBG.mkv
+    path: Option<String>,
+    title: String,
 }
 
-fn get_tdarr_output_list(tdarr_output: String) -> Result<Vec<String>> {
+async fn get_radarr_movies(
+    radarr_config: &radarr::configuration::Configuration,
+) -> Result<Vec<RadarrMovieResource>> {
     let mut res = Vec::new();
-    for path in WalkDir::new(tdarr_output).into_iter() {
+    let movies = radarr::movie_api::api_v3_movie_get(radarr_config, None, None, None).await?;
+    for movie in movies {
+        let movie_path_err_message = format!("No movie path found in resource {:?}", &movie);
+        let movie_title_err_message = format!("No title found in resource {:?}", &movie);
+        let rel_path_err_message = format!("No relative file path found in resource {:?}", &movie);
+        let root_folder_err_message = format!("No root folder path found in resource {:?}", &movie);
+
+        let root_folder_path = movie
+            .root_folder_path
+            .as_ref()
+            .context(root_folder_err_message.clone())?
+            .as_ref()
+            .context(root_folder_err_message)?;
+        res.push(RadarrMovieResource {
+            id: movie
+                .id
+                .context(format!("No movie id found in resource {:?}", &movie))?,
+            path: match movie.movie_file {
+                Some(r) => Some(
+                    [
+                        movie
+                            .path
+                            .as_ref()
+                            .context(movie_path_err_message.clone())?
+                            .as_ref()
+                            .context(movie_path_err_message)?[root_folder_path.len()..]
+                            .to_string(),
+                        r.relative_path
+                            .context(rel_path_err_message.clone())?
+                            .context(rel_path_err_message)?,
+                    ]
+                    .join("/"),
+                ),
+                None => None,
+            },
+            title: movie
+                .title
+                .context(movie_title_err_message.clone())?
+                .context(movie_title_err_message)?,
+        })
+    }
+    Ok(res)
+}
+
+fn get_file_list_in(parent: &String) -> Result<Vec<String>> {
+    let mut res = Vec::new();
+    for path in WalkDir::new(parent).into_iter() {
         let path = path?;
         res.push(
             path.path()
                 .to_str()
-                .context("Could not get path from Tdarr output")?
+                .context("Could not get path from Tdarr output")?[parent.len()..]
                 .to_string(),
         );
     }
@@ -193,8 +366,10 @@ fn get_tdarr_output_list(tdarr_output: String) -> Result<Vec<String>> {
 async fn get_tdarr_all_workers(
     tdarr_config: &tdarr::configuration::Configuration,
     tdarr_root_folder: &str,
-) -> Result<Vec<TdarrWorker>> {
-    let mut res = Vec::new();
+) -> Result<HashMap<String, f64>> {
+    let mut res = HashMap::new();
+    //tdarr there are media in the queue, and associated with nodes
+    // we have to scan each node -- and then each worker -- and all files
     let tdarr_nodes = tdarr::nodes_api::api_v2_get_nodes_get(tdarr_config)
         .await
         .context("Failed to get Tdarr nodes")?;
@@ -218,18 +393,14 @@ async fn get_tdarr_all_workers(
                     .context(worker_file_err_message)?[tdarr_root_folder.len()..],
             )
             .with_extension("");
-            let path = path_buf.to_str().unwrap();
-            // TODO: this is so fucked -- i have no idea why but the radarr api outputs a filename
-            // that is one character shorter -- if any torrents differ by only 1 character, i guess
-            // you bring it on yourself... still makes me deeply unhappy
-            let path = path[..path.len() - 1].to_string();
+            let path = path_buf.to_str().unwrap().to_string();
             let worker_progress_err_message = "Failed to get Tdarr worker progress";
             let progress = worker
                 .get("percentage")
                 .context(worker_progress_err_message)?
                 .as_f64()
                 .context(worker_progress_err_message)?;
-            res.push(TdarrWorker { path, progress });
+            res.insert(path, progress);
         }
     }
     Ok(res)
@@ -335,19 +506,6 @@ async fn get_api_configs(
     Ok((radarr_config, tdarr_config, qbit_config))
 }
 
-async fn get_radarr_root_folder(
-    radarr_config: &radarr::configuration::Configuration,
-) -> Result<String> {
-    let radarr_root_folder_err_message = "Could not get root folder path from Radarr";
-    let radarr_root_folder = radarr::root_folder_api::api_v3_rootfolder_get(radarr_config).await?
-        [0]
-    .path
-    .clone()
-    .context(radarr_root_folder_err_message)?
-    .context(radarr_root_folder_err_message)?;
-    Ok(radarr_root_folder)
-}
-
 async fn get_tdarr_root_folder(
     tdarr_config: &tdarr::configuration::Configuration,
 ) -> Result<String> {
@@ -371,16 +529,9 @@ async fn get_tdarr_root_folder(
     Ok(tdarr_root_folder)
 }
 
-struct GrabbedMediaResource {
-    path: String,
-    download_id: String,
-    title: String,
-}
-
 async fn get_radarr_grabbed_media(
     configuration: &radarr::configuration::Configuration,
-    radarr_root_folder: &str,
-) -> Result<Vec<GrabbedMediaResource>> {
+) -> Result<HashMap<i32, String>> {
     let grabbed_torrents = radarr::history_api::api_v3_history_since_get(
         configuration,
         None,
@@ -388,50 +539,22 @@ async fn get_radarr_grabbed_media(
         Some(true),
     )
     .await?;
-    let mut res = Vec::new();
+    let mut res = HashMap::new();
     for torrent in grabbed_torrents {
-        let movie = torrent
-            .movie
-            .as_ref()
-            .context(format!("No movie found in resource {:?}", &torrent))?;
-        let movie_path_err_message = format!("No movie path found in resource {:?}", &torrent);
-        let parent_path = movie
-            .path
-            .as_ref()
-            .context(movie_path_err_message.clone())?
-            .as_ref()
-            .context(movie_path_err_message)?[radarr_root_folder.len()..]
-            .to_string();
-        let filename_err_message = format!("No source title found in resource {:?}", &torrent);
-        let filename = torrent
-            .source_title
-            .as_ref()
-            .context(filename_err_message.clone())?
-            .as_ref()
-            .context(filename_err_message)?;
-        let path = [parent_path, filename.to_string()].join("/");
-        let title_err_message = format!("No title found in resource {:?}", &torrent);
-        let title = movie
-            .title
-            .as_ref()
-            .context(title_err_message.clone())?
-            .as_ref()
-            .context(title_err_message)?
-            .clone();
         let download_id_err_message =
             format!("Failed to get download id in resource {:?}", &torrent);
-        let download_id = torrent
-            .download_id
-            .as_ref()
-            .context(download_id_err_message.clone())?
-            .as_ref()
-            .context(download_id_err_message)?
-            .clone();
-        res.push(GrabbedMediaResource {
-            path,
-            download_id,
-            title,
-        });
+        res.insert(
+            torrent
+                .movie_id
+                .context(format!("No id found in resource {:?}", &torrent))?,
+            torrent
+                .download_id
+                .as_ref()
+                .context(download_id_err_message.clone())?
+                .as_ref()
+                .context(download_id_err_message)?
+                .clone(),
+        );
     }
     Ok(res)
 }

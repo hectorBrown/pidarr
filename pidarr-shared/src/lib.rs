@@ -16,6 +16,8 @@ pub enum ConnectionState {
 pub struct Media {
     pub title: String,
     pub download_id: String,
+    pub radarr_path: Option<String>,
+    pub tdarr_path: Option<String>,
     pub download_progress: Option<f64>,
     pub seeding_ratio: Option<f64>,
     pub transcode_progress: Option<f64>,
@@ -80,7 +82,7 @@ macro_rules! daemon_state_fields {
             radarr_connected:(ConnectionState):(ConnectionState::Unknown):("Radarr connected"),
             qbit_connected:(ConnectionState):(ConnectionState::Unknown):("qBittorrent connected"),
             tdarr_connected:(ConnectionState):(ConnectionState::Unknown):("Tdarr connected"),
-            media:(HashMap<String, Media>):(HashMap::new()):("List of media")
+            media:(HashMap<i32, Media>):(HashMap::new()):("List of media")
         }
     };
 }
