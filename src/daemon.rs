@@ -510,6 +510,8 @@ async fn get_tdarr_root_folder(
     tdarr_config: &tdarr::configuration::Configuration,
 ) -> Result<String> {
     let tdarr_root_folder_err_message = "Could not get Tdarr root folder";
+    //TODO: for all api requests -- if they fail because we are disconnected -- we should try to
+    //reconnect and if that fails, we should update the state
     let tdarr_root_folder = tdarr::default_api::api_v2_cruddb_post(
         tdarr_config,
         Some(tdarr_api::models::ApiV2CruddbPostRequest {
