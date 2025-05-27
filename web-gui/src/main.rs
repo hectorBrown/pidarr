@@ -137,28 +137,28 @@ pub fn App() -> impl IntoView {
             { settings_fields!(settings_gui_element) }
         </table>
         // save settings button -- sends the settings values to the daemon
-        <button on:click=move|_|{
+        <button on:click={
             //grab a handle to the arc
             let settings_controls = settings_controls.clone();
+            move|_|{
             // defines a payload which is just a pidarr_shared setting struct with the data from
             // settings_controls
             macro_rules! settings_payload {
-                ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {
-                    {
-                        $(
-                            let $field: $type;
-                            //TODO: this should result in some kind of error if the parse fails to
-                            //notify
-                            $field = settings_controls.$field.get().parse::<$type>().unwrap_or($default);
-                        )*
-                        Settings {
-                            $( $field, )*
-                        }
+                ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {{
+                    $(
+                        let $field: $type;
+                        //TODO: this should result in some kind of error if the parse fails to
+                        //notify
+                        $field = settings_controls.$field.get().parse::<$type>().unwrap_or($default);
+                    )*
+                    Settings {
+                        $( $field, )*
                     }
-                }
+                }}
             }
             let payload = InternalMessage { message_type: MessageType::Settings,
-            body: json!(settings_fields!(settings_payload))};
+                body: json!(settings_fields!(settings_payload))
+            };
             //attempt to send the payload to the daemon
             if connected.get() {
                 if let Some(client) = client.borrow().as_ref() {
@@ -170,13 +170,13 @@ pub fn App() -> impl IntoView {
             } else {
                 error!("Can't save settings, not connected to daemon.")
             }
-        }>Save</button>
+        }}>Save</button>
         //TODO: this can be removed in prod versions
         <button on:click=move |_| {
             log!("Retrying connection to daemon...");
             connect_to_daemon();
         }>Retry Connection</button>
-        {torrent_table(daemon_state_controls.clone())}
+        {torrent_table(daemon_state_controls.clone(), settings_controls.clone())}
     }
 }
 
@@ -187,7 +187,10 @@ fn send_to_daemon(payload: &impl Serialize, client: &EventClient) -> Result<()> 
     }
 }
 
-fn torrent_table(daemon_state_controls: DaemonStateControls) -> impl IntoView {
+fn torrent_table(
+    daemon_state_controls: DaemonStateControls,
+    settings_controls: SettingsControls,
+) -> impl IntoView {
     view! {
         <h2>Media</h2>
         <table>
@@ -196,6 +199,7 @@ fn torrent_table(daemon_state_controls: DaemonStateControls) -> impl IntoView {
             <td><b>Status</b></td>
             <td><b>Download Progress</b></td>
             <td><b>Transcode Progress</b></td>
+            <td><b>Seeding Progress</b></td>
         </tr>
         <For
             each=move || daemon_state_controls.media.get()
@@ -214,10 +218,17 @@ fn torrent_table(daemon_state_controls: DaemonStateControls) -> impl IntoView {
                             Some(p) => p,
                             None => 0.0,
                         }} max=100></progress></td>
-                        <td><progress value={move || match media.get().transcode_progress {
+                        <td><progress value={let media = media.clone();
+                            move || match media.get().transcode_progress {
                             Some(p) => p,
                             None => 0.0,
                         }} max=100></progress></td>
+                        <td><progress value={move || match media.get().seeding_ratio {
+                            Some(p) => p,
+                            None => 0.0,
+                        }} max={let settings_controls = settings_controls.clone();
+                            move || settings_controls.target_seeding_ratio.get()}>
+                        </progress></td>
                     </tr>
                 }
             }
