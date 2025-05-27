@@ -146,7 +146,7 @@ pub fn App() -> impl IntoView {
                 ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {
                     {
                         $(
-                            let mut $field: $type;
+                            let $field: $type;
                             //TODO: this should result in some kind of error if the parse fails to
                             //notify
                             $field = settings_controls.$field.get().parse::<$type>().unwrap_or($default);
