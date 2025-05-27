@@ -326,7 +326,7 @@ struct GrabbedMediaResource {
 
 async fn get_radarr_grabbed_media(
     configuration: &radarr::configuration::Configuration,
-    radarr_root_folder: &String,
+    radarr_root_folder: &str,
 ) -> Result<Vec<GrabbedMediaResource>> {
     let grabbed_torrents = radarr::history_api::api_v3_history_since_get(
         configuration,
