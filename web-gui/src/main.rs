@@ -60,6 +60,7 @@ pub fn App() -> impl IntoView {
     let daemon_addr = "ws://127.0.0.1:2323/ws";
 
     let settings_controls = SettingsControls::new();
+    let saved_settings = SettingsControls::new();
     let daemon_state_controls = DaemonStateControls::new();
     let connected = RwSignal::new(false);
     //TODO: its possible that the client should just be in a rwsignal
@@ -70,12 +71,14 @@ pub fn App() -> impl IntoView {
         let client = client.clone();
         let connected = connected.clone();
         let settings_controls = settings_controls.clone();
+        let saved_settings = saved_settings.clone();
         let daemon_state_controls = daemon_state_controls.clone();
         move || {
             let new_client = connect_to_daemon_impl(
                 daemon_addr,
                 connected.clone(),
                 settings_controls.clone(),
+                saved_settings.clone(),
                 daemon_state_controls.clone(),
             );
             //TODO: could this be better with a mutex
@@ -140,6 +143,7 @@ pub fn App() -> impl IntoView {
         <button on:click={
             //grab a handle to the arc
             let settings_controls = settings_controls.clone();
+            let saved_settings = saved_settings.clone();
             move|_|{
             // defines a payload which is just a pidarr_shared setting struct with the data from
             // settings_controls
@@ -163,7 +167,17 @@ pub fn App() -> impl IntoView {
             if connected.get() {
                 if let Some(client) = client.borrow().as_ref() {
                     match send_to_daemon(&payload, client) {
-                        Ok(_) => log!("Sent payload to daemon: {}", serde_json::to_string(&payload).unwrap()),
+                        Ok(_) => {
+                            macro_rules! update_saved_settings {
+                                ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {{
+                                    $(
+                                        saved_settings.$field.set(settings_controls.$field.get());
+                                    )*
+                                }}
+                            }
+                            settings_fields!(update_saved_settings);
+                            log!("Sent payload to daemon: {}", serde_json::to_string(&payload).unwrap())
+                        },
                         Err(e) => error!("Failed to send payload to daemon: {}", e),
                     }
                 }
@@ -176,7 +190,7 @@ pub fn App() -> impl IntoView {
             log!("Retrying connection to daemon...");
             connect_to_daemon();
         }>Retry Connection</button>
-        {torrent_table(daemon_state_controls.clone(), settings_controls.clone())}
+        {torrent_table(daemon_state_controls.clone(), settings_controls.clone(), saved_settings.clone())}
     }
 }
 
@@ -190,6 +204,7 @@ fn send_to_daemon(payload: &impl Serialize, client: &EventClient) -> Result<()> 
 fn torrent_table(
     daemon_state_controls: DaemonStateControls,
     settings_controls: SettingsControls,
+    saved_settings: SettingsControls,
 ) -> impl IntoView {
     view! {
         <h2>Media</h2>
@@ -226,8 +241,9 @@ fn torrent_table(
                         <td><progress value={move || match media.get().seeding_ratio {
                             Some(p) => p,
                             None => 0.0,
-                        }} max={let settings_controls = settings_controls.clone();
-                            move || settings_controls.target_seeding_ratio.get()}>
+                        }} max={let saved_settings = saved_settings.clone();
+                            move || saved_settings.target_seeding_ratio.get()
+                        }>
                         </progress></td>
                     </tr>
                 }
@@ -241,6 +257,7 @@ fn connect_to_daemon_impl(
     addr: &str,
     connected: RwSignal<bool>,
     settings_controls: SettingsControls,
+    saved_settings: SettingsControls,
     daemon_state_controls: DaemonStateControls,
 ) -> EventClient {
     log!("Creating connection with daemon");
@@ -262,6 +279,7 @@ fn connect_to_daemon_impl(
             &client,
             &msg,
             settings_controls.clone(),
+            saved_settings.clone(),
             daemon_state_controls.clone(),
         ) {
             error!("Failed to handle message: {:?}\nError: {}", msg, e);
@@ -274,6 +292,7 @@ fn handle_message(
     client: &EventClient,
     msg: &Message,
     settings_controls: SettingsControls,
+    saved_settings: SettingsControls,
     daemon_state_controls: DaemonStateControls,
 ) -> Result<()> {
     // server should never send us a binary message
@@ -292,6 +311,7 @@ fn handle_message(
         MessageType::Settings => update_settings(
             serde_json::from_value::<Settings>(message.body)?,
             settings_controls.clone(),
+            saved_settings.clone(),
         )?,
         MessageType::DaemonState => update_daemon_state(
             serde_json::from_value::<DaemonState>(message.body)?,
@@ -302,12 +322,17 @@ fn handle_message(
     Ok(())
 }
 
-fn update_settings(settings: Settings, settings_controls: SettingsControls) -> Result<()> {
+fn update_settings(
+    settings: Settings,
+    settings_controls: SettingsControls,
+    saved_settings: SettingsControls,
+) -> Result<()> {
     // use the settings fields macro to set all settings_controls with the received payload
     macro_rules! update_settings_fields {
         ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {
             $(
                 settings_controls.$field.set(settings.$field.to_string());
+                saved_settings.$field.set(settings.$field.to_string());
             )*
         }
     }
