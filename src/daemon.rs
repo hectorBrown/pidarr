@@ -47,7 +47,7 @@ async fn daemon_update(
     //make sure we have all the api configs we need
     let settings = settings.lock().unwrap().clone();
     let (radarr_config, tdarr_config, mut qbit_config) =
-        get_api_configs(settings, api_configs.clone(), state.clone()).await?;
+        get_api_configs(&settings, api_configs.clone(), state.clone()).await?;
     let radarr_root_folder = get_radarr_root_folder(&radarr_config).await?;
     let tdarr_root_folder = get_tdarr_root_folder(&tdarr_config).await?;
 
@@ -233,7 +233,7 @@ async fn get_qbit_torrent_hashes(
 }
 
 async fn get_api_configs(
-    settings: Settings,
+    settings: &Settings,
     api_configs: Arc<Mutex<ApiConfigs>>,
     state: Arc<Mutex<DaemonState>>,
 ) -> Result<(
