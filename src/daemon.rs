@@ -23,10 +23,17 @@ pub async fn main(
     state: Arc<Mutex<DaemonState>>,
     api_configs: Arc<Mutex<ApiConfigs>>,
 ) {
-    let radarr_addr = settings.lock().unwrap().radarr_addr.clone();
-    let radarr_api_key = settings.lock().unwrap().radarr_api_key.clone();
-    let qbit_addr = settings.lock().unwrap().qbit_addr.clone();
-    let tdarr_addr = settings.lock().unwrap().tdarr_addr.clone();
+    let radarr_addr: String;
+    let radarr_api_key: String;
+    let qbit_addr: String;
+    let tdarr_addr: String;
+    {
+        let settings = settings.lock().unwrap();
+        radarr_addr = settings.radarr_addr.clone();
+        radarr_api_key = settings.radarr_api_key.clone();
+        qbit_addr = settings.qbit_addr.clone();
+        tdarr_addr = settings.tdarr_addr.clone();
+    }
     api_configs.lock().unwrap().radarr_config =
         connect_radarr(radarr_addr, radarr_api_key, state.clone()).await;
     api_configs.lock().unwrap().qbit_config = connect_qbit(qbit_addr, state.clone()).await;
