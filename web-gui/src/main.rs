@@ -168,6 +168,9 @@ pub fn App() -> impl IntoView {
                 if let Some(client) = client.borrow().as_ref() {
                     match send_to_daemon(&payload, client) {
                         Ok(_) => {
+                            //TODO: this is only an assurance that the request didn't fail, not
+                            //that it was saved successfully -- also useful to confirm with user
+                            //that save occured
                             macro_rules! update_saved_settings {
                                 ( $( $field:ident : ( $default:expr ) : ( $type:ty ) : ( $desc:expr ) ),* ) => {{
                                     $(
