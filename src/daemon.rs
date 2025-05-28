@@ -2,6 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use pidarr_shared::{ConnectionState, DaemonState, Media, MediaStatus, Settings};
 use qbittorrent_rust::{api_fns as qbit, core::api::QbitApi};
 use radarr_api::apis as radarr;
+use sonarr_api::apis as sonarr;
 use std::fs::{create_dir_all, remove_file};
 use std::os::unix::fs::symlink;
 use std::path::Path;
@@ -16,6 +17,7 @@ use walkdir::WalkDir;
 #[derive(Clone)]
 pub struct ApiConfigs {
     pub radarr_config: Option<radarr::configuration::Configuration>,
+    pub sonarr_config: Option<sonarr::configuration::Configuration>,
     pub qbit_config: Option<QbitApi>,
     pub tdarr_config: Option<tdarr::configuration::Configuration>,
 }
@@ -27,17 +29,23 @@ pub async fn main(
 ) {
     let radarr_addr: String;
     let radarr_api_key: String;
+    let sonarr_addr: String;
+    let sonarr_api_key: String;
     let qbit_addr: String;
     let tdarr_addr: String;
     {
         let settings = settings.lock().unwrap();
         radarr_addr = settings.radarr_addr.clone();
         radarr_api_key = settings.radarr_api_key.clone();
+        sonarr_addr = settings.sonarr_addr.clone();
+        sonarr_api_key = settings.sonarr_api_key.clone();
         qbit_addr = settings.qbit_addr.clone();
         tdarr_addr = settings.tdarr_addr.clone();
     }
     api_configs.lock().unwrap().radarr_config =
         connect_radarr(radarr_addr, radarr_api_key, state.clone()).await;
+    api_configs.lock().unwrap().sonarr_config =
+        connect_sonarr(sonarr_addr, sonarr_api_key, state.clone()).await;
     api_configs.lock().unwrap().qbit_config = connect_qbit(qbit_addr, state.clone()).await;
     api_configs.lock().unwrap().tdarr_config = connect_tdarr(tdarr_addr, state.clone()).await;
     loop {
@@ -56,7 +64,7 @@ async fn daemon_update(
 ) -> Result<()> {
     //make sure we have all the api configs we need
     let settings = settings.lock().unwrap().clone();
-    let (radarr_config, tdarr_config, mut qbit_config) =
+    let (radarr_config, sonarr_config, tdarr_config, mut qbit_config) =
         get_api_configs(&settings, api_configs.clone(), state.clone()).await?;
     let tdarr_root_folder = get_tdarr_root_folder(&tdarr_config).await?;
 
@@ -462,6 +470,7 @@ async fn get_api_configs(
     state: Arc<Mutex<DaemonState>>,
 ) -> Result<(
     radarr::configuration::Configuration,
+    sonarr::configuration::Configuration,
     tdarr::configuration::Configuration,
     QbitApi,
 )> {
@@ -478,6 +487,21 @@ async fn get_api_configs(
             .await
             .context("Failed to connect to Radarr")?;
             api_configs.lock().unwrap().radarr_config = Some(config.clone());
+            config
+        }
+    };
+    let sonarr_config = match _api_configs.sonarr_config {
+        Some(c) => c,
+        None => {
+            println!("Attempting connection to Radarr");
+            let config = connect_sonarr(
+                settings.sonarr_addr.clone(),
+                settings.sonarr_api_key.clone(),
+                state.clone(),
+            )
+            .await
+            .context("Failed to connect to Radarr")?;
+            api_configs.lock().unwrap().sonarr_config = Some(config.clone());
             config
         }
     };
@@ -503,7 +527,7 @@ async fn get_api_configs(
             config
         }
     };
-    Ok((radarr_config, tdarr_config, qbit_config))
+    Ok((radarr_config, sonarr_config, tdarr_config, qbit_config))
 }
 
 async fn get_tdarr_root_folder(
@@ -559,6 +583,46 @@ async fn get_radarr_grabbed_media(
         );
     }
     Ok(res)
+}
+
+pub async fn connect_sonarr(
+    sonarr_addr: String,
+    sonarr_api_key: String,
+    state: Arc<Mutex<DaemonState>>,
+) -> Option<sonarr::configuration::Configuration> {
+    let mut sonarr_config = sonarr::configuration::Configuration::new();
+    sonarr_config.base_path = sonarr_addr;
+    sonarr_config.api_key = Some(sonarr::configuration::ApiKey {
+        prefix: None,
+        key: sonarr_api_key,
+    });
+
+    let connection_state = match sonarr::system_api::api_v3_system_status_get(&sonarr_config).await
+    {
+        Ok(_) => {
+            println!("Connected to Sonarr successfully");
+            ConnectionState::Connected
+        }
+        Err(sonarr::Error::ResponseError(r)) => {
+            if r.status == 401 {
+                eprintln!("Connection to Sonarr successful but unauthorized: {:?}", r);
+                ConnectionState::Unauthorized
+            } else {
+                eprintln!("There was an error connecting to Sonarr: {:?}", r);
+                ConnectionState::Disconnected
+            }
+        }
+        Err(e) => {
+            eprintln!("There was an error while cnnecting to Sonarr: {}", e);
+            ConnectionState::Disconnected
+        }
+    };
+    let res = match connection_state {
+        ConnectionState::Connected => Some(sonarr_config),
+        _ => None,
+    };
+    state.lock().unwrap().sonarr_connected = connection_state;
+    res
 }
 
 pub async fn connect_radarr(

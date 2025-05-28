@@ -1316,6 +1316,7 @@ dependencies = [
  "radarr-api",
  "serde",
  "serde_json",
+ "sonarr-api",
  "tdarr-api",
  "tokio",
  "tokio-tungstenite",
@@ -1884,6 +1885,18 @@ checksum = "4f5fd57c80058a56cf5c777ab8a126398ece8e442983605d280a44ce79d0edef"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "sonarr-api"
+version = "3.0.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
 ]
 
 [[package]]

@@ -19,6 +19,7 @@ serde = "1.0.219"
 axum = { version = "0.8.4", features = ["ws"] }
 tower-http = { version = "0.6.4", features = ["fs"] }
 radarr-api = { path = "./extern/radarr-api/" }
+sonarr-api = { path = "./extern/sonarr-api/" }
 tdarr-api = { path = "./extern/tdarr-api/" }
 qbittorrent_rust = "0.1.3"
 walkdir = "2.5.0"

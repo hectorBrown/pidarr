@@ -65,7 +65,10 @@ macro_rules! settings_fields {
         $macro! {
             radarr_addr:("http://localhost:7878".to_string()):(String):("Radarr address"),
             radarr_api_key:("".to_string()):(String):("Radarr API key"),
-            radarr_output:("/radarr".to_string()):(String):("Radarr output path"),
+            radarr_output:("/arr/radarr".to_string()):(String):("Radarr output path"),
+            sonarr_addr:("http://localhost:8989".to_string()):(String):("Sonarr address"),
+            sonarr_api_key:("".to_string()):(String):("Sonarr API key"),
+            sonarr_output:("/arr/sonarr".to_string()):(String):("Sonarr output path"),
             qbit_addr:("http://localhost:8080".to_string()):(String):("qBittorrent address"),
             tdarr_addr:("http://localhost:8265".to_string()):(String):("Tdarr address"),
             tdarr_output:("/tdarr".to_string()):(String):("Tdarr output path"),
@@ -80,6 +83,7 @@ macro_rules! daemon_state_fields {
     ($macro:ident) => {
         $macro! {
             radarr_connected:(ConnectionState):(ConnectionState::Unknown):("Radarr connected"),
+            sonarr_connected:(ConnectionState):(ConnectionState::Unknown):("Sonarr connected"),
             qbit_connected:(ConnectionState):(ConnectionState::Unknown):("qBittorrent connected"),
             tdarr_connected:(ConnectionState):(ConnectionState::Unknown):("Tdarr connected"),
             media:(HashMap<i32, Media>):(HashMap::new()):("List of media")

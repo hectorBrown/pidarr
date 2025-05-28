@@ -1,0 +1,55 @@
+# SeriesResource
+
+## Properties
+
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**id** | Option<**i32**> |  | [optional]
+**title** | Option<**String**> |  | [optional]
+**alternate_titles** | Option<[**Vec<models::AlternateTitleResource>**](AlternateTitleResource.md)> |  | [optional]
+**sort_title** | Option<**String**> |  | [optional]
+**status** | Option<[**models::SeriesStatusType**](SeriesStatusType.md)> |  | [optional]
+**ended** | Option<**bool**> |  | [optional][readonly]
+**profile_name** | Option<**String**> |  | [optional]
+**overview** | Option<**String**> |  | [optional]
+**next_airing** | Option<**String**> |  | [optional]
+**previous_airing** | Option<**String**> |  | [optional]
+**network** | Option<**String**> |  | [optional]
+**air_time** | Option<**String**> |  | [optional]
+**images** | Option<[**Vec<models::MediaCover>**](MediaCover.md)> |  | [optional]
+**original_language** | Option<[**models::Language**](Language.md)> |  | [optional]
+**remote_poster** | Option<**String**> |  | [optional]
+**seasons** | Option<[**Vec<models::SeasonResource>**](SeasonResource.md)> |  | [optional]
+**year** | Option<**i32**> |  | [optional]
+**path** | Option<**String**> |  | [optional]
+**quality_profile_id** | Option<**i32**> |  | [optional]
+**season_folder** | Option<**bool**> |  | [optional]
+**monitored** | Option<**bool**> |  | [optional]
+**monitor_new_items** | Option<[**models::NewItemMonitorTypes**](NewItemMonitorTypes.md)> |  | [optional]
+**use_scene_numbering** | Option<**bool**> |  | [optional]
+**runtime** | Option<**i32**> |  | [optional]
+**tvdb_id** | Option<**i32**> |  | [optional]
+**tv_rage_id** | Option<**i32**> |  | [optional]
+**tv_maze_id** | Option<**i32**> |  | [optional]
+**tmdb_id** | Option<**i32**> |  | [optional]
+**first_aired** | Option<**String**> |  | [optional]
+**last_aired** | Option<**String**> |  | [optional]
+**series_type** | Option<[**models::SeriesTypes**](SeriesTypes.md)> |  | [optional]
+**clean_title** | Option<**String**> |  | [optional]
+**imdb_id** | Option<**String**> |  | [optional]
+**title_slug** | Option<**String**> |  | [optional]
+**root_folder_path** | Option<**String**> |  | [optional]
+**folder** | Option<**String**> |  | [optional]
+**certification** | Option<**String**> |  | [optional]
+**genres** | Option<**Vec<String>**> |  | [optional]
+**tags** | Option<**Vec<i32>**> |  | [optional]
+**added** | Option<**String**> |  | [optional]
+**add_options** | Option<[**models::AddSeriesOptions**](AddSeriesOptions.md)> |  | [optional]
+**ratings** | Option<[**models::Ratings**](Ratings.md)> |  | [optional]
+**statistics** | Option<[**models::SeriesStatisticsResource**](SeriesStatisticsResource.md)> |  | [optional]
+**episodes_changed** | Option<**bool**> |  | [optional]
+**language_profile_id** | Option<**i32**> |  | [optional][readonly]
+
+[[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
+
+

@@ -38,14 +38,16 @@ macro_rules! settings_controls {
 #[derive(Clone)]
 pub struct DaemonStateControls {
     pub radarr_connected: ArcRwSignal<ConnectionState>,
+    pub sonarr_connected: ArcRwSignal<ConnectionState>,
     pub qbit_connected: ArcRwSignal<ConnectionState>,
     pub tdarr_connected: ArcRwSignal<ConnectionState>,
-    pub media: ArcRwSignal<HashMap<String, ArcRwSignal<Media>>>,
+    pub media: ArcRwSignal<HashMap<i32, ArcRwSignal<Media>>>,
 }
 impl DaemonStateControls {
     pub fn new() -> Self {
         Self {
             radarr_connected: ArcRwSignal::new(ConnectionState::Unknown),
+            sonarr_connected: ArcRwSignal::new(ConnectionState::Unknown),
             qbit_connected: ArcRwSignal::new(ConnectionState::Unknown),
             tdarr_connected: ArcRwSignal::new(ConnectionState::Unknown),
             media: ArcRwSignal::new(HashMap::new()),
@@ -133,6 +135,7 @@ pub fn App() -> impl IntoView {
         })}</p>
         // list of settings and input fields
         { connection_element!(radarr_connected, ("Connected to Radarr")) }
+        { connection_element!(sonarr_connected, ("Connected to Sonarr")) }
         { connection_element!(qbit_connected, ("Connected to qBittorrent")) }
         { connection_element!(tdarr_connected, ("Connected to Tdarr")) }
         <h2>Settings</h2>
@@ -355,20 +358,19 @@ fn update_daemon_state(
         .radarr_connected
         .set(state.radarr_connected);
     daemon_state_controls
+        .sonarr_connected
+        .set(state.sonarr_connected);
+    daemon_state_controls
         .tdarr_connected
         .set(state.tdarr_connected);
     for (i, item) in state.media.iter() {
-        if daemon_state_controls
-            .media
-            .get_untracked()
-            .contains_key(i.as_str())
-        {
+        if daemon_state_controls.media.get_untracked().contains_key(i) {
             daemon_state_controls
                 .media
-                .update(|m| m.get_mut(i).unwrap().set(item.clone()));
+                .update(|m| m.get_mut(&i).unwrap().set(item.clone()));
         } else {
             daemon_state_controls.media.update(|m| {
-                m.insert(i.clone(), ArcRwSignal::new(item.clone()));
+                m.insert(*i, ArcRwSignal::new(item.clone()));
             });
         }
     }

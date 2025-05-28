@@ -90,6 +90,7 @@ async fn main() -> Result<()> {
     let daemon_state = Arc::new(Mutex::new(DaemonState::default()));
     let api_configs = Arc::new(Mutex::new(daemon::ApiConfigs {
         radarr_config: None,
+        sonarr_config: None,
         qbit_config: None,
         tdarr_config: None,
     }));
